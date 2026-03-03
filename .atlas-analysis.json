@@ -1,0 +1,116 @@
+{
+  "projectType": "saas",
+  "projectName": "OpenCouncil",
+  "projectDescription": "Open-source platform making local government meetings transparent, searchable, and accessible to citizens",
+  "theme": "palm",
+  "primaryColor": "#5A6978",
+  "lightColor": "#7289DA",
+  "darkColor": "#3B4654",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/transcription",
+              "features/search",
+              "features/notifications",
+              "features/meeting-highlights",
+              "features/ai-summaries"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/environment-setup",
+              "deployment/docker",
+              "deployment/nix",
+              "deployment/database"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/contributing",
+              "development/project-structure",
+              "development/authentication",
+              "development/data-access"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/task-workflow",
+              "guides/notifications-system",
+              "guides/user-management",
+              "guides/administrative-bodies",
+              "guides/consultations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/cities",
+              "api/meetings",
+              "api/search",
+              "api/notifications",
+              "api/chat"
+            ]
+          },
+          {
+            "group": "Webhooks",
+            "pages": [
+              "api/webhooks/task-callbacks"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Automatic transcription with speaker recognition",
+    "Full-text search across council meetings",
+    "AI-generated summaries and chat assistant",
+    "Personalized notification system",
+    "Meeting highlights with video editing",
+    "Diavgeia integration for official decisions",
+    "Multi-channel notifications (Email, WhatsApp, SMS)",
+    "Role-based access control",
+    "Interactive maps with geospatial queries",
+    "Public API for open data access"
+  ],
+  "publicApiSurface": [
+    "GET /api/cities - List all cities",
+    "GET /api/cities/{cityId} - Get city details",
+    "GET /api/cities/{cityId}/meetings - List meetings",
+    "GET /api/cities/{cityId}/meetings/{meetingId} - Get meeting details",
+    "POST /api/search - Search across transcripts",
+    "GET /api/cities/{cityId}/people - List council members",
+    "GET /api/cities/{cityId}/parties - List political parties",
+    "POST /api/chat - AI chat assistant",
+    "GET /api/notifications - User notifications",
+    "GET /api/cities/{cityId}/consultations - Public consultations"
+  ]
+}
