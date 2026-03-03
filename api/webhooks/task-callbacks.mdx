@@ -1,0 +1,225 @@
+---
+title: Task callback webhooks
+description: Receive real-time updates on async task execution via callback webhooks
+---
+
+OpenCouncil uses a **decoupled async job processing system** where tasks are queued in the database and processed by a separate backend service. When you start a task, you provide a callback URL that receives status updates as the task progresses.
+
+## Callback flow
+
+1. **Frontend queues task**: Creates a `TaskStatus` record in the database with status `pending`
+2. **Backend processes task**: Separate service at `TASK_API_URL` picks up and executes the task
+3. **Backend sends updates**: POSTs progress and completion updates to the callback URL
+4. **Frontend handles callback**: Updates database and triggers result processing
+
+## Callback endpoint
+
+The callback URL follows this pattern:
+
+```
+POST /api/cities/{cityId}/meetings/{meetingId}/taskStatuses/{taskStatusId}
+```
+
+This endpoint accepts both POST and PUT requests for task status updates.
+
+### Path parameters
+
+<ParamField path="cityId" type="string" required>
+  The unique identifier for the city
+</ParamField>
+
+<ParamField path="meetingId" type="string" required>
+  The unique identifier for the council meeting
+</ParamField>
+
+<ParamField path="taskStatusId" type="string" required>
+  The unique identifier for the task status record
+</ParamField>
+
+## Request body
+
+The callback sends a `TaskUpdate` object with the following structure:
+
+<ParamField body="status" type="string" required>
+  Current task status. One of: `processing`, `success`, `error`
+</ParamField>
+
+<ParamField body="stage" type="string" required>
+  Human-readable description of the current processing stage
+</ParamField>
+
+<ParamField body="progressPercent" type="number" required>
+  Progress percentage (0-100)
+</ParamField>
+
+<ParamField body="version" type="number">
+  Task handler version number for tracking updates across deployments
+</ParamField>
+
+<ParamField body="result" type="object">
+  Task-specific result data (only present when `status` is `success`)
+</ParamField>
+
+<ParamField body="error" type="string">
+  Error message (only present when `status` is `error`)
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Confirmation message: "Task status updated successfully"
+</ResponseField>
+
+## Example callbacks
+
+### Progress update
+
+```json
+{
+  "status": "processing",
+  "stage": "Transcribing audio",
+  "progressPercent": 45,
+  "version": 2
+}
+```
+
+### Success with result
+
+```json
+{
+  "status": "success",
+  "stage": "Complete",
+  "progressPercent": 100,
+  "version": 2,
+  "result": {
+    "videoUrl": "https://storage.example.com/video.mp4",
+    "audioUrl": "https://storage.example.com/audio.mp3",
+    "muxPlaybackId": "abc123",
+    "transcript": {
+      "metadata": {
+        "audio_duration": 3600,
+        "transcription_time": 180
+      },
+      "transcription": {
+        "languages": ["el"],
+        "utterances": [
+          {
+            "text": "Καλησπέρα σας",
+            "start": 0.0,
+            "end": 1.5,
+            "speaker": 1,
+            "drift": 0.0
+          }
+        ],
+        "speakers": [
+          {
+            "speaker": 1,
+            "match": "person_id_123",
+            "confidence": {
+              "person_id_123": 0.92
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### Error callback
+
+```json
+{
+  "status": "error",
+  "stage": "Failed",
+  "progressPercent": 0,
+  "version": 2,
+  "error": "Audio file not accessible at provided URL"
+}
+```
+
+## Task types
+
+OpenCouncil supports multiple task types, each with specific request and result formats:
+
+### Core pipeline tasks
+
+These tasks are required for the main processing pipeline:
+
+- **transcribe**: Transcribes audio/video and identifies speakers using voiceprints
+- **fixTranscript**: Corrects transcription errors using AI
+- **humanReview**: Flags transcript for human review
+- **transcriptSent**: Marks transcript as sent to external service
+- **summarize**: Generates AI summaries and extracts subjects from discussions
+
+### Optional tasks
+
+These tasks can run multiple times and are not part of the core pipeline:
+
+- **processAgenda**: Extracts structured data from meeting agenda PDFs
+- **generatePodcastSpec**: Creates podcast scripts from meeting highlights
+- **generateHighlight**: Generates video highlights with captions
+- **splitMediaFile**: Splits audio/video into segments
+- **generateVoiceprint**: Creates speaker voice embeddings for identification
+- **pollDecisions**: Fetches and matches decisions from Diavgeia (Greek transparency portal)
+
+## Idempotency
+
+Core pipeline tasks enforce **automatic idempotency** to prevent duplicate processing:
+
+- **Already succeeded**: If a task of the same type has already succeeded for a meeting, new requests are rejected
+- **Already running**: If a task is currently in progress, new requests are rejected
+- **Force mode**: Pass `force: true` to bypass idempotency and reprocess
+
+Optional tasks (non-pipeline) can run multiple times without restrictions.
+
+## Result processing
+
+When a task succeeds, the callback handler:
+
+1. Updates the `TaskStatus` record with status `succeeded` and stores the result
+2. Calls the task-specific result handler from the registry
+3. Processes and stores result data in the database (e.g., creates `SpeakerSegment` records for transcribe tasks)
+4. Sends admin alert via Discord webhook
+5. Revalidates Next.js cache for affected meeting data
+
+If result processing fails, the task status is updated to `failed` with error details.
+
+## Cache revalidation
+
+Successful completion of these task types triggers Next.js cache revalidation:
+
+- **summarize**: Revalidates meeting lists
+- **processAgenda**: Revalidates meeting lists
+- **pollDecisions**: Revalidates meeting lists
+
+Cache tag format: `city:{cityId}:meetings`
+
+## Error handling
+
+The callback endpoint handles errors gracefully:
+
+- **404**: Task status record not found
+- **500**: Error during result processing (task marked as failed with error details)
+
+All errors are logged and sent to Discord admin alerts for monitoring.
+
+## Security
+
+Callback URLs are automatically generated by the system and include:
+
+- Full path with city, meeting, and task IDs
+- Base URL from `NEXTAUTH_URL` environment variable
+- No additional authentication required (task ID serves as authorization)
+
+The backend authenticates to the task API using `Authorization: Bearer {TASK_API_KEY}`.
+
+## Discord notifications
+
+All task lifecycle events trigger Discord admin alerts:
+
+- **Started**: When task is queued and sent to backend
+- **Completed**: When task succeeds and result processing completes
+- **Failed**: When task fails or result processing errors
+
+Alerts include: city name, meeting name, task type, task ID, and error details (if failed).

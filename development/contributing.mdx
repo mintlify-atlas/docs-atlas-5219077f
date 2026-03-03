@@ -1,0 +1,273 @@
+---
+title: Contributing guidelines
+description: Learn how to contribute to OpenCouncil with our human-AI co-creation workflow
+---
+
+## Getting started
+
+OpenCouncil operates an open contributor model where anyone is welcome to contribute towards development in the form of peer review, testing and patches. This document explains the practical process and guidelines for contributing.
+
+<Note>
+  Before proceeding, follow the [Development Setup guide in the README](https://github.com/schemalabz/opencouncil) to get your environment up and running.
+</Note>
+
+## Working with multiple features simultaneously
+
+When collaborating with AI co-pilots on multiple features or bug fixes in parallel, git worktrees provide an efficient workflow. Each worktree is a separate working directory linked to the same repository, allowing you to work on multiple branches without switching contexts.
+
+<Steps>
+  <Step title="Create a new worktree">
+    Create a new branch from main and set up a worktree for it:
+    
+    ```bash
+    git worktree add -b feature-branch-name ../opencouncil-feature-name main
+    ```
+  </Step>
+  
+  <Step title="Start development environment">
+    Open a new terminal/IDE window in the worktree directory:
+    
+    ```bash
+    cd ../opencouncil-feature-name
+    ./run.sh  # Automatically uses available ports (e.g., 3001, 5556, 5433)
+    ```
+  </Step>
+  
+  <Step title="Work in parallel">
+    The Docker setup automatically detects if ports are in use and allocates the next available ports. This allows you to:
+    
+    - Keep your main development environment running while testing features in isolation
+    - Work with AI co-pilots on multiple issues concurrently in different windows
+    - Quickly switch between different features without stopping and restarting services
+  </Step>
+</Steps>
+
+### Cleaning up after feature completion
+
+Once your feature is complete and merged, clean up the worktree to free up disk space and keep your workspace organized. Each worktree creates its own set of Docker containers, so you need to clean those up first.
+
+```bash
+# 1. Clean up Docker resources from inside the worktree
+cd ../opencouncil-feature-name
+./run.sh --clean
+
+# 2. Navigate back and remove the worktree
+cd ../opencouncil
+git worktree remove ../opencouncil-feature-name
+
+# 3. Delete the branch if it's been merged
+git branch -d feature-branch-name
+```
+
+<Note>
+  The `./run.sh --clean` command automatically detects and cleans up all Docker resources (containers, volumes, networks) specific to that worktree, ensuring nothing is left behind.
+</Note>
+
+## Contributor workflow
+
+Our development methodology is founded on a **co-creation partnership** between human contributors and AI. The human provides the creative leadership and strategic direction; the AI acts as a thinking partner and a powerful co-creator, automating the heavy lifting of planning and coding.
+
+<Tip>
+  This process is supported by a series of dedicated AI co-pilots, each guided by a prompt that can be found in the [prompts directory](https://github.com/schemalabz/opencouncil/tree/main/docs/prompts).
+</Tip>
+
+### From idea to issue
+
+All work is tracked via GitHub Issues. Whether an idea comes from our public roadmap or a new proposal from a contributor, it must become a well-defined issue before development can begin.
+
+There are two primary sources for contributions:
+
+<CardGroup cols={2}>
+  <Card title="Public roadmap" icon="map">
+    Our [GitHub Projects board](https://github.com/orgs/schemalabz/projects/1) contains our high-level roadmap. When an item from the backlog is ready to be worked on, we move it to the "Ready" column.
+  </Card>
+  
+  <Card title="New proposals" icon="lightbulb">
+    If you have a new feature idea, bug report, or suggestion not on our roadmap, you can propose it directly.
+  </Card>
+</CardGroup>
+
+#### The issue creation process
+
+Both roadmap items and new proposals are transformed into a formal GitHub Issue through a collaborative process:
+
+<Steps>
+  <Step title="Take a raw idea">
+    Either from the roadmap's "Ready" column or your own proposal.
+  </Step>
+  
+  <Step title="Engage the Idea Creation AI co-pilot">
+    Use the [idea-creation.prompt.md](https://github.com/schemalabz/opencouncil/blob/main/docs/prompts/idea-creation.prompt.md) to start a collaborative dialogue.
+  </Step>
+  
+  <Step title="Clarify and formulate">
+    Through collaboration, the AI helps you clarify your thoughts, link it to a Feature Pillar (an existing Architectural Guide), and formulate a clear description.
+  </Step>
+  
+  <Step title="Create the issue">
+    The final output is a perfectly formatted GitHub Issue, ready to be created and picked up for development.
+  </Step>
+</Steps>
+
+### Collaborative planning: The PRD
+
+For complex features or changes, a well-defined GitHub Issue is expanded into a detailed Product Requirements Document (PRD). This is a co-creation process where a contributor acts as the creative lead and an AI co-pilot serves as a co-creator.
+
+<Steps>
+  <Step title="Select a GitHub Issue">
+    Choose an issue that requires detailed planning.
+  </Step>
+  
+  <Step title="Engage the PRD Creation AI co-pilot">
+    Use the [prd-creation.prompt.md](https://github.com/schemalabz/opencouncil/blob/main/docs/prompts/prd-creation.prompt.md), providing the Issue content.
+  </Step>
+  
+  <Step title="AI gathers context">
+    The AI reads the Issue, the linked Architectural Guide, and proactively gathers context from the codebase.
+  </Step>
+  
+  <Step title="Iterate on the PRD">
+    The AI drafts a complete PRD, and the human-AI team iterates on it until the plan is solid.
+  </Step>
+</Steps>
+
+### Implementation: AI pair programming
+
+With a plan from a PRD or a simple Issue, translate it into production-ready code and documentation collaboratively.
+
+<Steps>
+  <Step title="Engage the Implementation AI">
+    Use the [implementation.prompt.md](https://github.com/schemalabz/opencouncil/blob/main/docs/prompts/implementation.prompt.md) to start.
+  </Step>
+  
+  <Step title="Propose technical strategy">
+    The AI proposes a technical strategy, and together you tackle the implementation file-by-file.
+  </Step>
+  
+  <Step title="Write and review">
+    The AI writes the code, the human reviews, provides direction, and tests.
+  </Step>
+  
+  <Step title="Update documentation">
+    Collaboratively update any relevant Architectural Guide as the final step.
+  </Step>
+  
+  <Step title="Submit pull request">
+    The final Pull Request contains both the new code and the updated documentation.
+  </Step>
+</Steps>
+
+## Committing patches
+
+To maintain a clean and understandable project history, we follow best practices for creating commits. While our AI pair programmer assists in this process, the human contributor is the final reviewer responsible for the quality of each commit.
+
+### Commit guidelines
+
+<AccordionGroup>
+  <Accordion title="Keep commits atomic">
+    In general, commits should be atomic and diffs should be easy to read. For this reason, do not mix any formatting fixes or code moves with actual code changes.
+  </Accordion>
+  
+  <Accordion title="Ensure commits are hygienic">
+    Make sure each individual commit is hygienic: that it builds successfully on its own without warnings, errors, regressions, or test failures. This means tests must be updated in the same commit that changes the behavior.
+  </Accordion>
+  
+  <Accordion title="Write clear commit messages">
+    Good commit messages are crucial for future contributors, both human and AI. Follow this structure:
+    
+    - A short subject line (50 characters max)
+    - A blank line
+    - Detailed explanatory text as separate paragraph(s), explaining the reasoning for your decisions
+    
+    A single title line is sufficient only if it is completely self-explanatory (e.g., "Correct typo in CONTRIBUTING.md").
+  </Accordion>
+  
+  <Accordion title="No @mentions">
+    Please do not include any `@mentions` in commit messages.
+  </Accordion>
+</AccordionGroup>
+
+### Squashing commits
+
+If your pull request contains small, incremental, or "fixup" commits (commits that change the same line of code repeatedly), you may be asked to [squash](https://git-scm.com/docs/git-rebase#_interactive_mode) your commits.
+
+```bash
+git checkout your_branch_name
+git rebase -i HEAD~n
+# n is normally the number of commits in the pull request.
+# Set commits from 'pick' to 'squash' (or other actions as needed), save and quit.
+# On the next screen, edit/refine commit messages.
+# Save and quit.
+git push -f # (force push to GitHub)
+```
+
+<Warning>
+  Please update the resulting commit message, if needed. It should read as a coherent message, not just a list of interim commits.
+</Warning>
+
+### Rebasing changes
+
+Before your pull request can be merged, it needs to be up-to-date with the `main` branch. Instead of merging the `main` branch into your feature branch, we prefer that you [rebase](https://git-scm.com/docs/git-rebase) your branch on top of `main`.
+
+```bash
+git checkout your_branch_name
+git fetch origin
+git rebase origin/main
+# If conflicts arise, resolve them, stage the resolved files, and continue with:
+# git rebase --continue
+# Repeat until rebase is complete.
+git push -f # (force push to GitHub)
+```
+
+<Note>
+  This creates a clean git history, where code changes are only made in non-merge commits. This simplifies auditability because merge commits can be assumed to not contain arbitrary code changes.
+</Note>
+
+## Creating the pull request
+
+Once your code and documentation changes are complete, you are ready to submit a Pull Request.
+
+<Steps>
+  <Step title="Branch naming">
+    Create a descriptive branch name:
+    
+    - Examples: `feature/transcript-tags`, `fix/login-bug`
+    - If your PR is based on a PRD, name your branch after the PRD file for a clear link
+  </Step>
+  
+  <Step title="PR title and description">
+    Write a clear and concise title that summarizes the change. In the PR description, include `Closes #[issue_number]` to automatically link your PR to the GitHub Issue.
+  </Step>
+  
+  <Step title="Use the PR creation co-pilot">
+    We have a dedicated AI co-pilot ([pull-request-creation.prompt.md](https://github.com/schemalabz/opencouncil/blob/main/docs/prompts/pull-request-creation.prompt.md)) to help you write a comprehensive description.
+  </Step>
+  
+  <Step title="Quality check">
+    Before opening your PR, run `/pre-pr` in Claude Code to catch common issues (commit hygiene, code quality, production safety, build, tests).
+  </Step>
+  
+  <Step title="Draft PRs for early feedback">
+    If your work is still in progress but you'd like to get early feedback, please open a "Draft" Pull Request.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Project structure" icon="folder-tree" href="/development/project-structure">
+    Learn about the codebase organization
+  </Card>
+  
+  <Card title="Authentication" icon="lock" href="/development/authentication">
+    Understand authentication patterns
+  </Card>
+  
+  <Card title="Data access" icon="database" href="/development/data-access">
+    Explore data access layer patterns
+  </Card>
+  
+  <Card title="Architecture" icon="building" href="/architecture/overview">
+    Review the architecture overview
+  </Card>
+</CardGroup>

@@ -1,0 +1,433 @@
+---
+title: Authentication
+description: Learn how to authenticate with the OpenCouncil API
+---
+
+OpenCouncil uses session-based authentication powered by Auth.js (NextAuth v5) for protected endpoints. Most read endpoints are public, while administrative operations require authentication.
+
+## Public vs protected endpoints
+
+### Public endpoints (no authentication required)
+
+<Note>
+These endpoints are accessible without authentication and are ideal for public-facing applications.
+</Note>
+
+- `GET /api/cities/all` - List all cities (minimal format)
+- `GET /api/cities/{cityId}` - Get city details
+- `GET /api/cities/{cityId}/meetings` - List meetings for a city
+- `GET /api/cities/{cityId}/meetings/{meetingId}` - Get meeting transcript
+- `GET /api/cities/{cityId}/parties` - List parties
+- `GET /api/cities/{cityId}/people` - List people
+- `POST /api/search` - Search subjects
+
+### Protected endpoints (authentication required)
+
+<Warning>
+These endpoints require valid authentication and appropriate permissions.
+</Warning>
+
+- `GET /api/cities?includeUnlisted=true` - List cities including unlisted ones
+- `POST /api/cities` - Create a new city
+- `POST /api/cities/{cityId}/meetings` - Create a meeting
+- `PATCH /api/cities/{cityId}/people/{personId}` - Update person
+- Admin endpoints under `/api/admin/*`
+
+## Authentication methods
+
+### Email-based authentication
+
+OpenCouncil uses **magic link authentication** via email. Users receive a verification link to sign in without passwords.
+
+<Steps>
+  <Step title="Request authentication">
+    Navigate to the sign-in page and enter your email address
+  </Step>
+  <Step title="Receive magic link">
+    Check your email for a message from `auth@opencouncil.gr` containing a sign-in link
+  </Step>
+  <Step title="Click the link">
+    Open the link to authenticate and create a session
+  </Step>
+  <Step title="Session created">
+    Your browser now has a session cookie for authenticated requests
+  </Step>
+</Steps>
+
+### Authentication provider
+
+The API uses **Resend** as the email provider:
+
+```typescript
+import Resend from "next-auth/providers/resend"
+
+providers: [Resend({
+  from: 'OpenCouncil <auth@opencouncil.gr>',
+  apiKey: process.env.RESEND_API_KEY
+})]
+```
+
+## Session management
+
+### Session cookies
+
+Authentication is managed via HTTP-only session cookies:
+
+```typescript
+cookies: {
+  sessionToken: {
+    name: 'authjs.session-token',
+    options: {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      secure: true // in production
+    }
+  }
+}
+```
+
+<Warning>
+Session cookies are HTTP-only and cannot be accessed via JavaScript. This prevents XSS attacks.
+</Warning>
+
+### Session structure
+
+Authenticated sessions include:
+
+```typescript
+interface Session {
+  user: {
+    id: string
+    email: string
+    name?: string | null
+    phone?: string | null
+    isSuperAdmin?: boolean
+  }
+  expires: string // ISO 8601 timestamp
+}
+```
+
+## Authorization
+
+### User roles
+
+OpenCouncil supports role-based access control:
+
+<CardGroup cols={2}>
+  <Card title="Super admin" icon="crown">
+    Full access to all cities and administrative functions
+  </Card>
+  <Card title="City admin" icon="building">
+    Manage specific cities they're assigned to
+  </Card>
+  <Card title="Regular user" icon="user">
+    Access public data and manage personal preferences
+  </Card>
+  <Card title="Anonymous" icon="eye">
+    Access only public endpoints
+  </Card>
+</CardGroup>
+
+### Permission checking
+
+API routes use centralized authorization functions from `src/lib/auth.ts`:
+
+#### Check user authorization (returns boolean)
+
+```typescript
+import { isUserAuthorizedToEdit } from '@/lib/auth'
+
+// In API route handler
+const canEdit = await isUserAuthorizedToEdit({ 
+  cityId: 'athens' 
+})
+
+if (!canEdit) {
+  return NextResponse.json(
+    { error: 'Unauthorized' },
+    { status: 401 }
+  )
+}
+```
+
+#### Require authorization (throws if unauthorized)
+
+```typescript
+import { withUserAuthorizedToEdit } from '@/lib/auth'
+
+// In API route handler
+await withUserAuthorizedToEdit({ 
+  cityId: params.cityId 
+})
+
+// Code here only runs if authorized
+// Function throws 401 error if not authorized
+```
+
+<Warning>
+**Critical**: Both authorization functions are async and **must** be awaited. Failing to await will bypass authorization checks.
+</Warning>
+
+### Example: Protected endpoint
+
+```typescript
+import { NextResponse } from 'next/server'
+import { isUserAuthorizedToEdit } from '@/lib/auth'
+import { createCity } from '@/lib/db/cities'
+
+export async function POST(request: Request) {
+  // Check authorization
+  const authorized = await isUserAuthorizedToEdit({})
+  
+  if (!authorized) {
+    return new NextResponse("Unauthorized", { 
+      status: 401 
+    })
+  }
+
+  // Parse and validate request
+  const data = await request.json()
+  
+  // Create city (authorized)
+  const city = await createCity(data)
+  
+  return NextResponse.json(city)
+}
+```
+
+## Configuration
+
+### Environment variables
+
+Authentication requires these environment variables:
+
+```bash
+# Auth.js Configuration
+NEXTAUTH_SECRET=your-secret-key-here
+NEXTAUTH_URL=https://api.opencouncil.gr
+
+# Email Provider (Resend)
+RESEND_API_KEY=re_xxxxxxxxxxxx
+```
+
+### Generating auth secret
+
+Generate a secure secret for `NEXTAUTH_SECRET`:
+
+```bash
+openssl rand -base64 32
+```
+
+<Note>
+The `NEXTAUTH_SECRET` is used to encrypt session tokens and must be kept secure.
+</Note>
+
+## Database integration
+
+OpenCouncil uses **Prisma Adapter** for Auth.js to store:
+
+- User accounts
+- Session data
+- Verification tokens
+
+```typescript
+import { PrismaAdapter } from "@auth/prisma-adapter"
+import prisma from "@/lib/db/prisma"
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  adapter: PrismaAdapter(prisma),
+  // ... other config
+})
+```
+
+### User model
+
+Users are stored in PostgreSQL with these key fields:
+
+```prisma
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  phone         String?
+  isSuperAdmin  Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+```
+
+## Development mode
+
+### Port-specific sessions
+
+In development, OpenCouncil uses port-specific session cookies to allow multiple instances:
+
+```typescript
+const isDev = process.env.NODE_ENV === 'development'
+const port = process.env.APP_PORT || '3000'
+
+cookies: isDev ? {
+  sessionToken: {
+    name: `authjs.session-token-${port}`,
+    // ... options
+  }
+} : undefined
+```
+
+This allows running multiple dev servers (e.g., on ports 3000 and 3001) with independent sessions.
+
+### Test users
+
+Development environments can use test users with email override:
+
+```bash
+# Redirect test user emails to your inbox
+DEV_EMAIL_OVERRIDE=your.email@example.com
+```
+
+<Note>
+When `DEV_EMAIL_OVERRIDE` is set, all test user authentication emails are sent to the override address instead.
+</Note>
+
+## Security best practices
+
+<AccordionGroup>
+  <Accordion title="Use HTTPS in production">
+    Always use HTTPS to protect session cookies from interception. Set `secure: true` in cookie options.
+  </Accordion>
+  
+  <Accordion title="Keep secrets secure">
+    Never commit `NEXTAUTH_SECRET` or `RESEND_API_KEY` to version control. Use environment variables.
+  </Accordion>
+  
+  <Accordion title="Validate all inputs">
+    Use Zod schemas to validate request bodies before processing, even on authenticated endpoints.
+  </Accordion>
+  
+  <Accordion title="Check permissions explicitly">
+    Always await authorization functions. Never skip permission checks for convenience.
+  </Accordion>
+  
+  <Accordion title="Rotate secrets regularly">
+    Update `NEXTAUTH_SECRET` and API keys periodically for enhanced security.
+  </Accordion>
+</AccordionGroup>
+
+## Error handling
+
+### Authentication errors
+
+<CodeGroup>
+```json 401 Unauthorized
+{
+  "error": "Unauthorized"
+}
+```
+
+```json 401 Not authorized for unlisted cities
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Not authorized to view unlisted cities"
+  }
+}
+```
+</CodeGroup>
+
+### Handling auth errors
+
+```typescript
+try {
+  await withUserAuthorizedToEdit({ cityId })
+  // Authorized code here
+} catch (error) {
+  if (error.status === 401) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    )
+  }
+  throw error
+}
+```
+
+## Testing authentication
+
+### Manual testing
+
+1. Start the development server
+2. Navigate to `/auth/signin`
+3. Enter a test email address
+4. Check your email inbox for the magic link
+5. Click the link to authenticate
+6. Verify session cookie is set in browser DevTools
+
+### Integration tests
+
+Use the provided test utilities:
+
+```typescript
+import { createAuthenticatedSession } from '@/lib/testing/auth'
+
+test('protected endpoint requires auth', async () => {
+  const session = await createAuthenticatedSession({
+    email: 'test@example.com',
+    isSuperAdmin: true
+  })
+  
+  // Make authenticated request
+  const response = await fetch('/api/cities', {
+    headers: {
+      Cookie: session.cookie
+    }
+  })
+  
+  expect(response.status).toBe(200)
+})
+```
+
+## Common issues
+
+<AccordionGroup>
+  <Accordion title="Session not persisting">
+    **Cause**: Missing or incorrect `NEXTAUTH_URL` environment variable.
+    
+    **Solution**: Ensure `NEXTAUTH_URL` matches your deployment URL exactly, including protocol and port.
+  </Accordion>
+  
+  <Accordion title="Magic link expired">
+    **Cause**: Verification tokens expire after a set time period.
+    
+    **Solution**: Request a new magic link. Tokens expire for security reasons.
+  </Accordion>
+  
+  <Accordion title="Unauthorized despite being logged in">
+    **Cause**: User lacks required permissions for the resource.
+    
+    **Solution**: Check user role and assigned cities. Contact an admin to update permissions.
+  </Accordion>
+  
+  <Accordion title="Email not received">
+    **Cause**: Email provider issue or incorrect `RESEND_API_KEY`.
+    
+    **Solution**: Verify API key is valid and check Resend dashboard for delivery logs.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Explore endpoints" icon="route" href="/api/endpoints/cities">
+    Learn about available API endpoints
+  </Card>
+  <Card title="View examples" icon="code" href="/api/examples">
+    See authentication in action with code examples
+  </Card>
+  <Card title="User management" icon="users" href="/guides/admin/users">
+    Manage users and permissions
+  </Card>
+  <Card title="API reference" icon="book" href="/api/reference">
+    Complete API specification
+  </Card>
+</CardGroup>

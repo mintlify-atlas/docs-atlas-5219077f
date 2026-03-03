@@ -1,0 +1,237 @@
+---
+title: API overview
+description: Introduction to the OpenCouncil API for accessing city council data
+---
+
+The OpenCouncil API provides programmatic access to city council meetings, transcripts, people, parties, and more. Built on REST principles, it returns JSON responses and uses standard HTTP response codes.
+
+## Base URL
+
+All API requests are made to:
+
+```
+https://api.opencouncil.gr/api
+```
+
+For local development:
+
+```
+http://localhost:3000/api
+```
+
+## API specification
+
+The complete API specification is available in OpenAPI 3.0 format:
+
+- **Title**: City Council API
+- **Version**: 1.0.0
+- **Format**: OpenAPI 3.0
+- **Location**: `swagger.yaml` in the source repository
+
+## Core concepts
+
+### Cities
+
+Cities represent municipalities or regions with council meetings. Each city has:
+
+- Unique identifier (slug)
+- Localized names (Greek and English)
+- Status: `pending`, `unlisted`, or `listed`
+- Authority type: `municipality` or `region`
+- Support for notifications
+- Official support status
+
+### Meetings
+
+Council meetings contain:
+
+- Date and time
+- Administrative body (council, committee, or community)
+- Video/audio recordings
+- Transcripts with speaker segments
+- Subjects discussed
+- Release status
+
+### People and parties
+
+- **People**: Council members with roles, party affiliation, and active terms
+- **Parties**: Political parties with localized names and branding
+
+### Subjects
+
+Agenda items discussed in meetings, including:
+
+- Topic categorization
+- Speaker segments
+- Summaries
+- Location data (when applicable)
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Hybrid search" icon="magnifying-glass">
+    Combine traditional text search with semantic search for intelligent results
+  </Card>
+  <Card title="Pagination" icon="list">
+    Built-in pagination support for large result sets
+  </Card>
+  <Card title="Filtering" icon="filter">
+    Filter by city, person, party, topic, date range, and location
+  </Card>
+  <Card title="Rich data" icon="database">
+    Access transcripts, summaries, metadata, and relationships
+  </Card>
+</CardGroup>
+
+## Response format
+
+All API responses return JSON with consistent structure:
+
+### Success responses
+
+```json
+{
+  "id": "string",
+  "name": "string",
+  // ... resource fields
+}
+```
+
+For collections:
+
+```json
+[
+  { "id": "1", "name": "Item 1" },
+  { "id": "2", "name": "Item 2" }
+]
+```
+
+For paginated endpoints:
+
+```json
+{
+  "results": [
+    // ... items
+  ],
+  "pagination": {
+    "total": 100,
+    "page": 1,
+    "pageSize": 10,
+    "totalPages": 10
+  }
+}
+```
+
+### Error responses
+
+<CodeGroup>
+```json Validation error (400)
+{
+  "error": [
+    {
+      "code": "invalid_type",
+      "message": "Expected string, received number",
+      "path": ["query"]
+    }
+  ]
+}
+```
+
+```json General error (400/500)
+{
+  "error": {
+    "code": "SEARCH_ERROR",
+    "message": "An error occurred while performing the search",
+    "details": {}
+  }
+}
+```
+
+```json Unauthorized (401)
+{
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Authentication required"
+  }
+}
+```
+</CodeGroup>
+
+## HTTP status codes
+
+The API uses standard HTTP status codes:
+
+| Code | Description |
+|------|-------------|
+| `200` | Success - Request completed successfully |
+| `400` | Bad Request - Invalid parameters or request body |
+| `401` | Unauthorized - Authentication required |
+| `404` | Not Found - Resource doesn't exist |
+| `500` | Internal Server Error - Server-side error occurred |
+
+## Data types
+
+### Common fields
+
+Many resources include these standard fields:
+
+- `id` (string): Unique identifier
+- `createdAt` (datetime): ISO 8601 timestamp of creation
+- `updatedAt` (datetime): ISO 8601 timestamp of last update
+- `cityId` (string): Associated city identifier
+
+### Localized content
+
+Bilingual fields use `_en` suffix for English:
+
+- `name` (string): Greek name
+- `name_en` (string): English name
+
+### Timestamps
+
+All timestamps are in ISO 8601 format:
+
+```json
+"2024-01-15T14:30:00Z"
+```
+
+## Rate limiting
+
+<Note>
+Rate limiting is not currently enforced, but may be implemented in future versions. Monitor the `error.code` field for `RATE_LIMIT_EXCEEDED` errors.
+</Note>
+
+## Technology stack
+
+The API is built with:
+
+- **Framework**: Next.js 14 API Routes
+- **Database**: PostgreSQL with PostGIS extension
+- **ORM**: Prisma for type-safe database access
+- **Validation**: Zod schemas for request validation
+- **Search**: Elasticsearch for full-text and semantic search
+- **Authentication**: Auth.js (NextAuth v5) with Resend email provider
+
+## Getting started
+
+<Steps>
+  <Step title="Explore the API">
+    Start with the [Cities endpoint](/api/cities) to discover available municipalities
+  </Step>
+  <Step title="Fetch meetings">
+    Use the [Meetings endpoint](/api/meetings) to get council meetings for a city
+  </Step>
+  <Step title="Search content">
+    Try the [Search endpoint](/api/search) to find subjects across all meetings
+  </Step>
+  <Step title="Access transcripts">
+    Get detailed transcripts from the [Transcripts endpoint](/api/meetings#get-meeting-transcript)
+  </Step>
+</Steps>
+
+## Need help?
+
+- Join our [Discord community](https://discord.gg/VdwtVG43WB)
+- Check out the [API endpoints](/api/cities) for detailed usage
+- View the [OpenAPI specification](https://raw.githubusercontent.com/schemalabz/opencouncil/main/swagger.yaml)
+- Report issues on [GitHub](https://github.com/schemalabz/opencouncil)

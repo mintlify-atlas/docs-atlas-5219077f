@@ -1,0 +1,673 @@
+---
+title: AI-generated summaries
+description: Automatic meeting analysis with speaker summaries, subject extraction, and intelligent chat assistance powered by Claude
+---
+
+OpenCouncil uses Anthropic's Claude AI to automatically analyze council meeting transcripts, generating summaries, identifying subjects, classifying topics, and providing an interactive chat assistant for deeper exploration.
+
+## AI capabilities
+
+<CardGroup cols={2}>
+  <Card title="Speaker summaries" icon="user-group">
+    Concise summaries of what each speaker said during their segments, with substantive vs. procedural classification.
+  </Card>
+  
+  <Card title="Subject extraction" icon="list-check">
+    Automatic identification of agenda items with names, descriptions, speakers, votes, and decisions.
+  </Card>
+  
+  <Card title="Topic classification" icon="tags">
+    AI assigns topic labels to speaker segments for better organization and filtering.
+  </Card>
+  
+  <Card title="Chat assistant" icon="comments">
+    Interactive Q&A about meeting content with context-aware responses and citations.
+  </Card>
+</CardGroup>
+
+## How AI summarization works
+
+The summarization process uses Claude with custom prompts and structured output:
+
+<Steps>
+  <Step title="Transcript preparation">
+    The system collects the full meeting transcript with speaker identities, party affiliations, and role information. Utterances are grouped into speaker segments.
+  </Step>
+  
+  <Step title="Context building">
+    Context includes:
+    - City information and municipality details
+    - Person roster with roles and party affiliations
+    - Topic taxonomy for classification
+    - Administrative body type (council, committee, etc.)
+    - Meeting date and metadata
+  </Step>
+  
+  <Step title="AI processing">
+    Claude analyzes the transcript in batches, generating:
+    - Speaker segment summaries (substantive vs. procedural)
+    - Topic labels for each segment
+    - Subject extraction with structured data
+    - Discussion status for each utterance
+    - Speaker contributions per subject
+  </Step>
+  
+  <Step title="Data persistence">
+    Results are stored in the database:
+    - Summaries linked to speaker segments
+    - Subjects with full metadata and relationships
+    - Utterance discussion statuses
+    - Topic labels for filtering
+  </Step>
+  
+  <Step title="Notification creation">
+    If enabled, notifications are created for users interested in the discussed subjects based on matching rules.
+  </Step>
+</Steps>
+
+## AI configuration
+
+The AI system uses sophisticated configuration for optimal results:
+
+<CodeGroup>
+```bash .env
+# Anthropic API
+ANTHROPIC_API_KEY=sk-ant-api03-your-key
+
+# Optional: Customize AI behavior
+AI_MAX_TOKENS=8192
+AI_TEMPERATURE=0
+AI_MODEL=claude-sonnet-4-0
+```
+
+```typescript AI config
+const DEFAULT_CONFIG: AIConfig = {
+  maxTokens: 8192,
+  temperature: 0,           // Deterministic output
+  model: "claude-sonnet-4-0",
+  logPrompts: IS_DEV,      // Log prompts in development
+  promptsDir: path.join(process.cwd(), 'logs', 'prompts'),
+  enableWebSearch: false,   // Optional web search
+  webSearchMaxUses: 10,
+  maxContinuationAttempts: 3 // Handle long responses
+};
+```
+
+```typescript Usage
+import { aiChat } from '@/lib/ai';
+
+const result = await aiChat<SummarizeResult>(
+  systemPrompt,
+  userPrompt,
+  prefillSystemResponse,  // Optional response start
+  prependToResponse,      // Optional prepend text
+  {
+    maxTokens: 8192,
+    temperature: 0,
+    enableWebSearch: false
+  }
+);
+```
+</CodeGroup>
+
+From `src/lib/ai.ts:14-35`
+
+## Speaker segment summaries
+
+Claude generates summaries for each speaker's contribution:
+
+<Tabs>
+  <Tab title="Summary types">
+    Speaker segments are classified as:
+    
+    **Substantive** - Content related to policy, decisions, or issues:
+    ```json
+    {
+      "speakerSegmentId": "segment-123",
+      "summary": "Ο δήμαρχος παρουσίασε την πρόταση για νέο ποδηλατόδρομο...",
+      "type": "SUBSTANTIVE",
+      "topicLabels": ["Μεταφορές", "Υποδομές"]
+    }
+    ```
+    
+    **Procedural** - Administrative or process-related content:
+    ```json
+    {
+      "speakerSegmentId": "segment-456",
+      "summary": "Η γραμματέας ανακοίνωσε την παρουσία των μελών...",
+      "type": "PROCEDURAL",
+      "topicLabels": []
+    }
+    ```
+    
+    <Info>
+      Procedural summaries help filter out administrative content when users want to focus on substantive discussions.
+    </Info>
+  </Tab>
+  
+  <Tab title="Topic labeling">
+    Each substantive summary gets topic labels:
+    
+    ```typescript
+    // Pre-fetch all topics to avoid repeated queries
+    const topics = await prisma.topic.findMany({
+      where: { name: { in: Array.from(allTopicNames) } }
+    });
+    const topicByName = new Map(topics.map(t => [t.name, t]));
+    
+    // Link topics to segments
+    for (const topicLabel of segment.topicLabels) {
+      const topic = topicByName.get(topicLabel);
+      if (topic) {
+        await prisma.topicLabel.upsert({
+          where: { id: `${segmentId}_${topic.id}` },
+          create: {
+            speakerSegment: { connect: { id: segmentId } },
+            topic: { connect: { id: topic.id } }
+          }
+        });
+      }
+    }
+    ```
+    
+    From `src/lib/tasks/summarize.ts:46-107`
+  </Tab>
+  
+  <Tab title="Batch processing">
+    Summaries are saved in a single transaction for performance:
+    
+    ```typescript
+    const operations: any[] = [];
+    
+    for (const segmentSummary of response.speakerSegmentSummaries) {
+      // Add summary upsert to batch
+      operations.push(
+        prisma.summary.upsert({
+          where: { speakerSegmentId: segmentSummary.speakerSegmentId },
+          update: {
+            text: segmentSummary.summary || '',
+            type: segmentSummary.type === "PROCEDURAL" ? "procedural" : "substantive"
+          },
+          create: { /* ... */ }
+        })
+      );
+      
+      // Add topic label upserts to batch
+      // ...
+    }
+    
+    // Execute all operations together
+    await prisma.$transaction(operations);
+    ```
+    
+    From `src/lib/tasks/summarize.ts:59-113`
+  </Tab>
+</Tabs>
+
+## Subject extraction
+
+The AI identifies and structures meeting subjects:
+
+<AccordionGroup>
+  <Accordion title="Subject structure">
+    Each subject includes:
+    
+    ```typescript
+    interface Subject {
+      agendaItemIndex: number;    // Position in agenda
+      name: string;               // Short title
+      description: string;        // Detailed summary
+      topicId: string | null;     // Primary topic classification
+      introducedById: string | null;  // Person who introduced it
+      context: string | null;     // Additional background
+      vote: Vote | null;          // Voting results if applicable
+      decision: Decision | null;  // Final decision text
+      speakerSegments: string[];  // Linked speaker segment IDs
+      contributions: SpeakerContribution[];  // Summary per speaker
+    }
+    ```
+    
+    Subjects maintain relationships to speakers, topics, and decisions for rich querying.
+  </Accordion>
+  
+  <Accordion title="Speaker contributions">
+    For each subject, Claude generates per-speaker summaries:
+    
+    ```typescript
+    interface SpeakerContribution {
+      speakerId: string | null;      // Person ID
+      speakerName: string | null;    // Display name for unknown speakers
+      text: string;                  // Markdown with special reference links
+    }
+    ```
+    
+    References use special syntax:
+    - `[text](REF:UTTERANCE:id)` - Link to specific utterance
+    - `[text](REF:PERSON:id)` - Link to person profile
+    - `[text](REF:PARTY:id)` - Link to party page
+    
+    From `src/lib/apiTypes.ts:131-135`
+  </Accordion>
+  
+  <Accordion title="Subject matching">
+    Subjects are matched by `agendaItemIndex` to preserve IDs across re-summarization:
+    
+    ```typescript
+    const subjectNameToIdMap = await saveSubjectsForMeeting(
+      response.subjects,
+      cityId,
+      meetingId
+    );
+    
+    // Matches existing subjects to avoid orphaning ES documents
+    // Returns map of API subject ID -> database subject ID
+    ```
+    
+    This ensures Elasticsearch documents aren't orphaned when meetings are re-summarized.
+    
+    From `src/lib/tasks/summarize.ts:116-120`
+  </Accordion>
+</AccordionGroup>
+
+## Discussion status tracking
+
+Utterances are tagged with discussion context:
+
+<Tabs>
+  <Tab title="Status types">
+    ```typescript
+    enum DiscussionStatus {
+      ATTENDANCE = "ATTENDANCE",           // Roll call
+      SUBJECT_DISCUSSION = "SUBJECT_DISCUSSION",  // Discussing a subject
+      VOTE = "VOTE",                       // Voting on a subject
+      OTHER = "OTHER"                      // General discussion
+    }
+    ```
+    
+    From `src/lib/apiTypes.ts:138-143`
+  </Tab>
+  
+  <Tab title="Subject linking">
+    Utterances are linked to subjects during discussion:
+    
+    ```typescript
+    interface UtteranceDiscussionStatus {
+      utteranceId: string;
+      status: DiscussionStatus;
+      subjectId: string | null;  // Links to subject being discussed
+    }
+    ```
+    
+    This enables features like:
+    - "Jump to subject discussion" from subject page
+    - Timeline visualization of subject discussions
+    - Filtering transcript by subject
+  </Tab>
+  
+  <Tab title="Batch updates">
+    Discussion statuses are saved with deduplication and validation:
+    
+    ```typescript
+    // Deduplicate by utteranceId (keep last entry)
+    const statusMap = new Map();
+    for (const status of response.utteranceDiscussionStatuses) {
+      if (statusMap.has(status.utteranceId)) {
+        console.warn(`Duplicate utterance ID: ${status.utteranceId}`);
+      }
+      statusMap.set(status.utteranceId, status);
+    }
+    
+    // Validate utterances exist
+    const existingUtterances = await prisma.utterance.findMany({
+      where: { id: { in: utteranceIds } },
+      select: { id: true }
+    });
+    
+    // Update only valid utterances
+    await Promise.all(
+      validStatuses.map(status => 
+        prisma.utterance.update({
+          where: { id: status.utteranceId },
+          data: {
+            discussionStatus: status.status,
+            discussionSubjectId: dbSubjectId
+          }
+        })
+      )
+    );
+    ```
+    
+    From `src/lib/tasks/summarize.ts:125-190`
+  </Tab>
+</Tabs>
+
+## AI chat assistant
+
+The interactive chat feature provides context-aware answers:
+
+<CodeGroup>
+```typescript Streaming chat
+import { aiChatStream } from '@/lib/ai';
+
+const stream = await aiChatStream(
+  systemPrompt,
+  messages,
+  {
+    maxTokens: 4096,
+    temperature: 0.3,  // Slightly creative for conversation
+    enableWebSearch: true  // Optional for factual queries
+  }
+);
+
+for await (const event of stream) {
+  if (event.type === 'content_block_delta') {
+    const textDelta = event.delta.text;
+    // Stream text to UI
+  }
+}
+```
+
+```typescript Web search integration
+const config: AIConfig = {
+  enableWebSearch: true,
+  webSearchMaxUses: 10  // Max web searches per request
+};
+
+const response = await aiChatStream(systemPrompt, messages, config);
+
+// Claude can use web_search_20250305 tool
+// Results are automatically incorporated into responses
+```
+</CodeGroup>
+
+From `src/lib/ai.ts:358-390`
+
+<Info>
+  Web search is useful for questions that require current information beyond the meeting transcript (e.g., "What is the current status of this proposal?").
+</Info>
+
+## Prompt logging
+
+Development mode logs all prompts for debugging:
+
+```typescript
+function logPromptToFile(
+  systemPrompt: string,
+  messages: any[],
+  config: AIConfig,
+  metadata: Record<string, any> = {}
+) {
+  if (!config.logPrompts) return;
+  
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = path.join(config.promptsDir!, `prompt-${timestamp}.json`);
+  
+  fs.writeFileSync(filename, JSON.stringify({
+    timestamp,
+    systemPrompt,
+    messages,
+    metadata: {
+      ...metadata,
+      nodeEnv: process.env.NODE_ENV,
+      maxTokens: config.maxTokens,
+      model: config.model
+    }
+  }, null, 2));
+  
+  console.log(`[Dev] Prompt logged to ${filename}`);
+}
+```
+
+From `src/lib/ai.ts:40-81`
+
+<Note>
+  Prompt logs are stored in `logs/prompts/` and include full request/response data for debugging AI behavior.
+</Note>
+
+## Response continuation
+
+Long responses are automatically continued:
+
+```typescript
+if (response.stop_reason === "max_tokens") {
+  console.log(`Claude stopped at max tokens: ${maxTokens}`);
+  
+  if (continuationAttempt >= maxContinuationAttempts) {
+    console.log(`Reached max attempts (${maxContinuationAttempts})`);
+    // Return partial result
+    return { usage, result: extractAndParseJSON(responseContent) };
+  }
+  
+  // Recursively continue with accumulated content
+  const response2 = await aiChat(
+    systemPrompt,
+    userPrompt,
+    (prefillSystemResponse + finalTextBlock.text).trim(),
+    (prependToResponse + finalTextBlock.text).trim(),
+    config,
+    continuationAttempt + 1
+  );
+  
+  // Combine usage stats
+  return {
+    usage: {
+      input_tokens: response.usage.input_tokens + response2.usage.input_tokens,
+      output_tokens: response.usage.output_tokens + response2.usage.output_tokens,
+      // ...
+    },
+    result: response2.result
+  };
+}
+```
+
+From `src/lib/ai.ts:285-327`
+
+<Warning>
+  Continuation attempts are limited to 3 by default to prevent infinite loops. Very long meetings may require larger `maxTokens` values.
+</Warning>
+
+## JSON extraction and repair
+
+The AI helper includes robust JSON parsing:
+
+```typescript
+function extractAndParseJSON<T>(content: string): T {
+  // Try direct parsing first
+  try {
+    return JSON.parse(content) as T;
+  } catch (e) { /* continue to fixes */ }
+  
+  // Fix 1: Add missing opening brace
+  if (fixedContent.match(/^"[^"]+"\s*:/)) {
+    fixedContent = '{' + fixedContent;
+  }
+  
+  // Fix 2: Add missing closing brace
+  const openBraces = (fixedContent.match(/\{/g) || []).length;
+  const closeBraces = (fixedContent.match(/\}/g) || []).length;
+  if (openBraces > closeBraces) {
+    fixedContent = fixedContent + '}';
+  }
+  
+  // Fix 3: Remove trailing commas
+  fixedContent = fixedContent.replace(/,(\s*[}\]])/g, '$1');
+  
+  // Fix 4: Extract from markdown code blocks
+  const codeBlockMatch = fixedContent.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (codeBlockMatch) {
+    fixedContent = codeBlockMatch[1];
+  }
+  
+  return JSON.parse(fixedContent) as T;
+}
+```
+
+From `src/lib/ai.ts:135-199`
+
+## Usage tracking
+
+All AI calls return usage statistics:
+
+```typescript
+interface ResultWithUsage<T> {
+  result: T;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    server_tool_use?: any;
+    service_tier?: string;
+  };
+}
+
+const { result, usage } = await aiChat<SummarizeResult>(
+  systemPrompt,
+  userPrompt
+);
+
+console.log(`Tokens used: ${usage.input_tokens} in, ${usage.output_tokens} out`);
+```
+
+From `src/lib/ai.ts:11`
+
+<Info>
+  Track usage stats to monitor costs and optimize prompt length for large meetings.
+</Info>
+
+## Performance optimization
+
+Summarization uses several optimizations:
+
+<AccordionGroup>
+  <Accordion title="Pre-fetch related data">
+    Fetch all topics and persons before processing:
+    
+    ```typescript
+    // Get all unique topic names
+    const allTopicNames = new Set<string>();
+    for (const summary of response.speakerSegmentSummaries) {
+      summary.topicLabels?.forEach(label => allTopicNames.add(label));
+    }
+    
+    // Fetch all at once
+    const topics = await prisma.topic.findMany({
+      where: { name: { in: Array.from(allTopicNames) } }
+    });
+    
+    // Create lookup map
+    const topicByName = new Map(topics.map(t => [t.name, t]));
+    ```
+    
+    Reduces N+1 query problems.
+  </Accordion>
+  
+  <Accordion title="Batch database operations">
+    Use transaction batching for all updates:
+    
+    ```typescript
+    const operations: any[] = [];
+    
+    // Collect all operations
+    operations.push(prisma.summary.upsert({ /* ... */ }));
+    operations.push(prisma.topicLabel.upsert({ /* ... */ }));
+    
+    // Execute together
+    await prisma.$transaction(operations);
+    ```
+    
+    Dramatically reduces transaction overhead.
+  </Accordion>
+  
+  <Accordion title="Parallel utterance updates">
+    Update utterance discussion statuses in parallel:
+    
+    ```typescript
+    const updatePromises = validStatuses.map(async (status) => {
+      try {
+        await prisma.utterance.update({
+          where: { id: status.utteranceId },
+          data: { discussionStatus: status.status }
+        });
+      } catch (error) {
+        console.error(`Failed to update ${status.utteranceId}:`, error);
+        // Don't throw - continue with other updates
+      }
+    });
+    
+    await Promise.all(updatePromises);
+    ```
+    
+    From `src/lib/tasks/summarize.ts:163-190`
+  </Accordion>
+</AccordionGroup>
+
+## API reference
+
+<ParamField path="aiChat" type="async function">
+  Main AI chat function with structured output
+  
+  <Expandable title="Parameters">
+    - `systemPrompt`: string - System instructions
+    - `userPrompt`: string - User query or task description
+    - `prefillSystemResponse`: string - Optional response start for Claude
+    - `prependToResponse`: string - Text to prepend to final result
+    - `config`: Partial&lt;AIConfig&gt; - Configuration overrides
+    - `continuationAttempt`: number - Internal recursion counter
+  </Expandable>
+  
+  <Expandable title="Returns">
+    ```typescript
+    {
+      result: T,  // Parsed JSON response
+      usage: {    // Token usage statistics
+        input_tokens: number,
+        output_tokens: number,
+        cache_creation_input_tokens?: number,
+        cache_read_input_tokens?: number
+      }
+    }
+    ```
+  </Expandable>
+</ParamField>
+
+<ParamField path="aiChatStream" type="async function">
+  Streaming AI chat for real-time responses
+  
+  <Expandable title="Parameters">
+    - `systemPrompt`: string - System instructions
+    - `messages`: MessageParam[] - Conversation history
+    - `config`: Partial&lt;AIConfig&gt; - Configuration overrides
+  </Expandable>
+  
+  <Expandable title="Returns">
+    ```typescript
+    AsyncIterable<MessageStreamEvent>
+    // Stream events include:
+    // - content_block_start
+    // - content_block_delta (text chunks)
+    // - content_block_stop
+    // - message_stop
+    ```
+  </Expandable>
+</ParamField>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Transcription" icon="microphone" href="/features/transcription">
+    Learn how transcripts are prepared for AI analysis
+  </Card>
+  
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    See how summaries trigger notification creation
+  </Card>
+  
+  <Card title="Search" icon="magnifying-glass" href="/features/search">
+    Summaries improve search relevance and filtering
+  </Card>
+  
+  <Card title="Chat assistant" icon="comments" href="/guides/using-chat">
+    Guide to using the AI chat assistant effectively
+  </Card>
+</CardGroup>

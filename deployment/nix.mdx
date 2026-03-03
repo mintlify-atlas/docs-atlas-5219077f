@@ -1,0 +1,435 @@
+---
+title: Nix flakes setup
+description: Deploy OpenCouncil using Nix flakes for reproducible development and production environments
+---
+
+OpenCouncil uses Nix flakes for reproducible, cross-platform development environments. Nix provides hermetic builds with pinned dependencies and zero-config PostgreSQL + PostGIS setup.
+
+## Why Nix?
+
+- **Reproducible builds**: Exact same toolchain across all machines via `flake.lock`
+- **Zero configuration**: PostgreSQL, PostGIS, Prisma engines auto-configured
+- **Multi-platform**: Works on Linux (x86_64/aarch64) and macOS (x86_64/Apple Silicon)
+- **Version pinning**: Matches production PostgreSQL/PostGIS versions exactly
+- **No Docker required**: Native processes for better performance
+
+## Installation
+
+Install Nix with flakes enabled:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+```
+
+<Note>
+  This installer automatically enables flakes and other recommended features. It works on Linux, macOS, and WSL2.
+</Note>
+
+## Quick start
+
+<Steps>
+  <Step title="Enter the development shell">
+    ```bash
+    nix develop
+    ```
+    
+    This provides Node.js, npm, Prisma, PostgreSQL client tools, and all dependencies.
+  </Step>
+  
+  <Step title="Start the development server">
+    ```bash
+    # Local database (default - recommended)
+    nix run .#dev
+    
+    # Remote database from .env
+    nix run .#dev -- --db=remote
+    ```
+  </Step>
+  
+  <Step title="Access the application">
+    Open `http://localhost:3000` in your browser
+  </Step>
+</Steps>
+
+## Database modes
+
+### Local database via Nix (default)
+
+Starts PostgreSQL + PostGIS as native processes using `process-compose`:
+
+```bash
+nix run .#dev
+```
+
+**Features:**
+- ✅ Automatic migrations and seeding
+- ✅ Prisma Studio on port 5555
+- ✅ Matches production PostGIS version (3.3.5)
+- ✅ No Docker required
+- ✅ Fast startup and hot-reload
+
+**Data location:** `.data/postgres/`
+
+### Remote database
+
+Connects to `DATABASE_URL` from `.env`:
+
+```bash
+nix run .#dev -- --db=remote
+```
+
+**Optional flags:**
+- `--migrate`: Run migrations before starting app
+- `--no-studio`: Disable Prisma Studio
+
+### Local database via Docker
+
+Starts dockerized PostgreSQL + PostGIS:
+
+```bash
+nix run .#dev -- --db=docker
+```
+
+<Note>
+  Use this if you prefer Docker or need to match exact Docker Compose behavior. Requires Docker Engine installed.
+</Note>
+
+### External database (explicit URLs)
+
+Connect to any database without `.env`:
+
+```bash
+nix run .#dev -- --db=external \
+  --db-url "postgresql://user:pass@host:5432/db" \
+  --direct-url "postgresql://user:pass@host:5432/db"
+```
+
+## Process Compose TUI
+
+The `nix run .#dev` command launches a terminal UI that manages multiple processes:
+
+<CodeGroup>
+```text Local DB mode (--db=nix)
+Processes:
+  - db: PostgreSQL + PostGIS
+  - app: Next.js dev server
+  - studio: Prisma Studio (port 5555)
+```
+
+```text Remote DB mode (--db=remote)
+Processes:
+  - app: Next.js dev server
+```
+</CodeGroup>
+
+### TUI controls
+
+- **Tab**: Switch between processes
+- **Arrows**: Scroll logs
+- **q**: Quit (stops all processes)
+- **r**: Restart selected process
+
+### Log files
+
+Copy/paste-friendly logs are saved to:
+
+```bash
+.data/process-compose/db.log
+.data/process-compose/app.log
+.data/process-compose/studio.log
+```
+
+View logs from terminal:
+
+```bash
+tail -200 .data/process-compose/app.log
+tail -f .data/process-compose/db.log
+```
+
+## Advanced options
+
+### Fast mode (skip PostGIS version lock)
+
+Use pre-built PostGIS from Nix binary cache (faster first build, but may not match production):
+
+```bash
+nix run .#dev -- --fast
+```
+
+<Warning>
+  Default mode builds PostGIS 3.3.5 from source to match production. Use `--fast` only for quick testing.
+</Warning>
+
+### LAN access for mobile testing
+
+By default, the dev server binds to `0.0.0.0` for mobile preview:
+
+```bash
+nix run .#dev  # Accessible from phone on same WiFi
+```
+
+Disable LAN binding:
+
+```bash
+nix run .#dev -- --no-lan
+```
+
+**NixOS firewall:** The dev runner automatically opens the app port via `iptables` (requires sudo once) and closes it on exit.
+
+### Preview database (PR testing)
+
+Connect to a preview deployment's database locally:
+
+```bash
+# Set SSH target in .env
+OC_PREVIEW_SSH=root@159.89.98.26
+
+# Connect to preview PR #193
+nix run .#dev -- --preview-db=193
+```
+
+This automatically:
+- Detects isolated vs shared staging database
+- Opens SSH tunnel if needed
+- Skips local PostgreSQL
+
+**Combine with task preview:**
+
+```bash
+nix run .#dev -- --preview-db=193 --preview-tasks=26
+```
+
+### Preview tasks (task server testing)
+
+Connect to a remote task server preview and expose your local app via ngrok:
+
+```bash
+# Set API key in .env
+TASK_API_KEY=your_api_key
+
+# Connect to tasks preview PR #26
+nix run .#dev -- --preview-tasks=26
+```
+
+This automatically:
+- Validates task server connection and API key
+- Starts ngrok tunnel for callbacks
+- Updates `NEXTAUTH_URL` and `TASK_API_URL`
+
+<Note>
+  First-time ngrok users: Run `ngrok config add-authtoken <TOKEN>` before using `--preview-tasks`. Get your token from [ngrok dashboard](https://dashboard.ngrok.com/get-started/your-authtoken).
+</Note>
+
+## Port configuration
+
+Customize ports via environment variables:
+
+```bash
+# Application port (default: auto-select from 3000)
+OC_APP_PORT=3000
+
+# Database port (default: auto-select from 5432)
+OC_DB_PORT=5432
+
+# Prisma Studio port (default: auto-select from 5555)
+OC_PRISMA_STUDIO_PORT=5555
+
+# Process Compose UI port (default: auto-select from 8080)
+# Access at http://localhost:<port>
+```
+
+**Automatic port selection:** If ports are in use, the runner finds the next available port automatically.
+
+## Database operations
+
+### Prisma CLI
+
+The dev shell includes Prisma CLI:
+
+```bash
+nix develop
+
+# Generate Prisma client
+prisma generate
+
+# Run migrations
+prisma migrate dev
+
+# Open Prisma Studio
+prisma studio --port 5555
+```
+
+### Prisma Studio (standalone)
+
+Run Prisma Studio outside the TUI:
+
+```bash
+# Uses DATABASE_URL from .env
+nix run .#studio
+
+# Custom database
+nix run .#studio -- --db-url "postgresql://..."
+
+# Custom port
+nix run .#studio -- --port 5556
+```
+
+### PostgreSQL CLI (psql)
+
+The dev shell includes `psql` with automatic configuration:
+
+```bash
+nix develop
+
+# Connect to database from .env
+psql "$PSQL_URL"
+
+# Run SQL file
+psql "$PSQL_URL" < scripts/some-query.sql
+
+# Quick query
+psql "$PSQL_URL" -c "SELECT COUNT(*) FROM \"Subject\";"
+```
+
+<Note>
+  `PSQL_URL` is automatically set by the dev shell. It's the same as `DATABASE_URL` but with query parameters stripped (psql doesn't need them).
+</Note>
+
+### Reset local database
+
+Delete local database and Next.js cache:
+
+```bash
+nix run .#cleanup
+```
+
+This removes:
+- `.data/postgres/` (database files)
+- `.next/` (Next.js build cache)
+
+After cleanup, run `nix run .#dev` to create a fresh database with seed data.
+
+## Production builds
+
+Build a production-ready package:
+
+```bash
+# Set NEXT_PUBLIC_* vars for client-side code
+set -a; source .env; set +a
+
+# Build with impure mode to inject env vars
+nix build --impure .#opencouncil-prod
+```
+
+The build output is in `result/`:
+
+```bash
+# Run the production server
+result/start.sh
+```
+
+**What gets built:**
+- Standalone Next.js output (minimal dependencies)
+- Bundled Prisma schema and engines
+- Optimized client bundles
+- Seed script (for deployment seeding)
+
+<Warning>
+  Production builds require `--impure` flag to inject `NEXT_PUBLIC_*` environment variables at build time. These values are baked into the client JavaScript bundle.
+</Warning>
+
+## Version management
+
+### Lock file (`flake.lock`)
+
+Nix flakes use `flake.lock` as the single source of truth for versions:
+
+```bash
+cat flake.lock
+```
+
+This pins:
+- nixpkgs commit (determines Node.js, PostgreSQL, etc. versions)
+- Prisma engines version
+- PostGIS version (via override)
+
+**Everyone using the same `flake.lock` gets identical toolchains.**
+
+### Updating dependencies
+
+Update nixpkgs to get newer packages:
+
+```bash
+nix flake lock --update-input nixpkgs
+```
+
+<Warning>
+  Updating `flake.lock` changes toolchain versions for everyone. Test thoroughly before committing.
+</Warning>
+
+### Prisma version matching
+
+The Prisma engines from nixpkgs must match the Prisma JavaScript packages in `package.json`.
+
+**When upgrading Prisma:**
+1. Update `prisma` and `@prisma/client` in `package.json`
+2. Update `flake.lock` to a nixpkgs version with matching engines
+3. Test migrations and queries
+
+Mismatch symptoms: "Engine version X doesn't match client version Y" errors.
+
+## Troubleshooting
+
+### Port conflicts
+
+The runner auto-selects ports. If you pin a port manually:
+
+```bash
+# Check if port is in use
+lsof -i :5432
+
+# Use different port
+OC_DB_PORT=5433 nix run .#dev
+```
+
+### Database initialization failed
+
+If `.data/postgres/` exists but is corrupted:
+
+```bash
+nix run .#cleanup  # Remove corrupted data
+nix run .#dev      # Start fresh
+```
+
+### Prisma engine version mismatch
+
+Verify engine versions:
+
+```bash
+nix develop --command prisma -v
+```
+
+If mismatched, update `flake.lock` to match `package.json` versions.
+
+### Build cache issues
+
+Clear Nix build cache:
+
+```bash
+# Remove build outputs
+rm -rf result
+
+# Clear nix-daemon cache (requires sudo on multi-user install)
+nix-collect-garbage -d
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment setup" icon="gear" href="/deployment/environment-setup">
+    Configure environment variables
+  </Card>
+  <Card title="Database setup" icon="database" href="/deployment/database">
+    Migrations and seeding
+  </Card>
+</CardGroup>

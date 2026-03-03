@@ -1,0 +1,535 @@
+---
+title: Public consultations feature
+description: Learn how OpenCouncil enables public consultations on regulatory texts with interactive maps and citizen feedback
+---
+
+## Overview
+
+OpenCouncil's consultation module provides a comprehensive tool for local governments to conduct public consultations on regulatory texts. Citizens can view regulations, explore geographic areas on interactive maps, and provide feedback on specific articles and locations.
+
+## Core concepts
+
+The consultation system is built around JSON-based regulation documents that combine textual content with geographic data.
+
+<CardGroup cols={3}>
+  <Card title="Regulation" icon="file-lines">
+    Structured document with chapters, articles, and references
+  </Card>
+  <Card title="Geographic areas" icon="map">
+    Points, circles, and polygons organized in geosets
+  </Card>
+  <Card title="References" icon="link">
+    Cross-links between text and locations using `{REF:id}` syntax
+  </Card>
+</CardGroup>
+
+## Regulation structure
+
+Regulations follow a hierarchical structure defined by a JSON schema:
+
+<Steps>
+  <Step title="Chapters">
+    Top-level sections with introductory text and articles
+    
+    **Example**: "General Provisions", "Traffic Rules", "Parking Regulations"
+  </Step>
+  
+  <Step title="Articles">
+    Individual regulation items with markdown content
+    
+    **Example**: "Article 5: Speed Limits in Pedestrian Zones"
+  </Step>
+  
+  <Step title="Geographic areas">
+    Organized in geosets (groups of related areas)
+    
+    **Example**: "prohibited_areas" geoset containing archaeological sites and hills
+  </Step>
+  
+  <Step title="Cross-references">
+    Links between text and other elements
+    
+    **Example**: `{REF:prohibited_areas}` in article text links to the map areas
+  </Step>
+</Steps>
+
+## User experience
+
+Citizens interact with consultations through a clean, mobile-first interface.
+
+### View modes
+
+<Tabs>
+  <Tab title="Map view" badge="Default">
+    **Features**:
+    - Full-screen interactive map
+    - Overlay UI for layer control
+    - Hierarchical geoset selection
+    - Toggle controls for areas
+    - Detail panel for selected areas
+    - Mobile-optimized with collapsible UI
+    
+    **Use case**: Exploring geographic boundaries and restrictions
+  </Tab>
+  
+  <Tab title="Document view">
+    **Features**:
+    - Structured text display
+    - Expandable chapters (collapsed by default)
+    - Article summaries
+    - Clickable references to map areas
+    - Progress indicators
+    
+    **Use case**: Reading regulation text and understanding rules
+  </Tab>
+</Tabs>
+
+### Navigation
+
+A floating action button in the bottom right allows users to toggle between views with a single tap.
+
+### Reference system
+
+Text can reference other parts of the regulation:
+
+<CodeGroup>
+```markdown Geoset reference
+Scooters are prohibited in {REF:prohibited_areas}, including archaeological sites and sensitive hills.
+```
+
+```markdown Specific location
+Parking is available at {REF:akademia_platonos} location.
+```
+
+```markdown Chapter reference
+See {REF:traffic_rules} for detailed speed limit information.
+```
+
+```markdown Article reference
+As stated in {REF:general_provisions}, all users must be 18 or older.
+```
+</CodeGroup>
+
+<Note>
+  Clicking a reference navigates users to the appropriate view (text or map) and highlights the referenced element.
+</Note>
+
+## Data model
+
+### Consultation model
+
+```prisma prisma/schema.prisma
+model Consultation {
+  id        String   @id @default(cuid())
+  name      String
+  jsonUrl   String   // URL to the regulation JSON file
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  
+  city      City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  cityId    String
+  
+  comments  ConsultationComment[]
+  
+  @@index([cityId, isActive])
+  @@index([isActive, endDate])
+}
+```
+
+### Comment model
+
+```prisma prisma/schema.prisma
+model ConsultationComment {
+  id            String   @id @default(cuid())
+  body          String   @db.Text
+  entityType    ConsultationCommentEntityType
+  entityId      String
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  
+  consultation  Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  consultationId String
+  
+  upvotes       ConsultationCommentUpvote[]
+  
+  @@index([consultationId, entityType, entityId])
+}
+
+enum ConsultationCommentEntityType {
+  CHAPTER
+  ARTICLE
+  GEOSET
+  GEOMETRY
+}
+```
+
+## Permalinks
+
+Every important element has a shareable permalink:
+
+<AccordionGroup>
+  <Accordion title="Consultation">
+    `/[cityId]/consultations/[consultationId]`
+    
+    Defaults to showing the map view
+  </Accordion>
+  
+  <Accordion title="Map view">
+    `/[cityId]/consultations/[consultationId]/map`
+    
+    Direct link to interactive map
+  </Accordion>
+  
+  <Accordion title="Chapter">
+    `/[cityId]/consultations/[consultationId]#chapter-[chapterId]`
+    
+    Scrolls to specific chapter in document view
+  </Accordion>
+  
+  <Accordion title="Article">
+    `/[cityId]/consultations/[consultationId]#article-[articleId]`
+    
+    Highlights specific article
+  </Accordion>
+  
+  <Accordion title="Geoset">
+    `/[cityId]/consultations/[consultationId]/map#geoset-[geosetId]`
+    
+    Shows specific geographic area group
+  </Accordion>
+  
+  <Accordion title="Geometry">
+    `/[cityId]/consultations/[consultationId]/map#geometry-[geometryId]`
+    
+    Focuses on specific polygon or point
+  </Accordion>
+</AccordionGroup>
+
+### Copy link UI
+
+Elements with permalinks display a clickable icon:
+- **Hover**: Shows "Copy link" tooltip
+- **Click**: Copies link to clipboard
+- **Feedback**: "Ο σύνδεσμος αντιγράφηκε" confirmation message
+
+## Public feedback system
+
+Citizens can comment on specific elements:
+
+<CardGroup cols={2}>
+  <Card title="Text comments" icon="message">
+    - Regulation chapters
+    - Individual articles
+  </Card>
+  <Card title="Geographic comments" icon="map-pin">
+    - Geosets (area groups)
+    - Specific locations/boundaries
+  </Card>
+</CardGroup>
+
+### Comment features
+
+<Steps>
+  <Step title="Authentication">
+    Users must be logged in to comment
+  </Step>
+  
+  <Step title="Rich text">
+    Comments support markdown formatting
+  </Step>
+  
+  <Step title="Upvoting">
+    Other users can upvote comments to prioritize feedback
+  </Step>
+  
+  <Step title="Moderation">
+    Municipal admins can review and moderate comments
+  </Step>
+</Steps>
+
+## Map interface
+
+The map view provides powerful visualization and interaction:
+
+### Layer control
+
+<Accordion title="Geoset hierarchy">
+  - Top level: Geoset groups (e.g., "Prohibited Areas")
+  - Second level: Individual areas within each geoset
+  - Toggle controls for visibility
+  - Visual distinction between types
+</Accordion>
+
+<Accordion title="Mobile optimization">
+  - Collapsible UI behind a button
+  - Touch-friendly controls
+  - Responsive layout
+  - Maximizes map visibility
+</Accordion>
+
+### Detail panel
+
+Sliding panel interface for viewing area details:
+
+- Displays geoset/area information
+- Shows related regulation text
+- Integrated commenting system
+- Smooth transitions
+
+## Example: Athens scooter regulation
+
+The initial implementation demonstrates the system with Athens' electric scooter regulation:
+
+### Content structure
+
+<Tabs>
+  <Tab title="General provisions">
+    - Purpose and scope
+    - Definitions (e-scooter, user, parking zone)
+    - Age and licensing requirements
+  </Tab>
+  
+  <Tab title="Traffic rules">
+    - Speed limits (25 km/h general, 6 km/h pedestrian zones)
+    - Prohibited areas
+    - Riding requirements
+  </Tab>
+  
+  <Tab title="Parking regulations">
+    - Designated parking zones
+    - Prohibited parking areas
+    - Parking procedures
+  </Tab>
+  
+  <Tab title="Penalties">
+    - Fines for violations
+    - Enforcement procedures
+    - Appeals process
+  </Tab>
+</Tabs>
+
+### Geographic elements
+
+<CodeGroup>
+```json Prohibited areas
+{
+  "id": "prohibited_areas",
+  "name": "Prohibited Areas",
+  "geometries": [
+    {
+      "id": "acropolis",
+      "name": "Acropolis Archaeological Site",
+      "geojson": { "type": "Polygon", ... }
+    },
+    {
+      "id": "lycabettus_hill",
+      "name": "Lycabettus Hill",
+      "geojson": { "type": "Polygon", ... }
+    }
+  ]
+}
+```
+
+```json Pedestrian zones
+{
+  "id": "pedestrian_zones",
+  "name": "Pedestrian Speed Zones (6 km/h)",
+  "geometries": [
+    {
+      "id": "plaka",
+      "name": "Plaka Historic Center",
+      "geojson": { "type": "Polygon", ... }
+    }
+  ]
+}
+```
+
+```json Parking locations
+{
+  "id": "parking_zones",
+  "name": "Designated Parking Locations",
+  "geometries": [
+    {
+      "id": "syntagma_parking",
+      "name": "Syntagma Square Parking",
+      "geojson": { "type": "Point", ... }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+## Administrator tools
+
+Super administrators have access to specialized tools for consultation management.
+
+### Map-based geolocation editor
+
+A comprehensive editing interface for converting textual location descriptions into GeoJSON:
+
+<Note>
+  **Problem**: Many regulations define boundaries textually (e.g., "the area enclosed by streets A, B, and C") rather than with coordinates.
+  
+  **Solution**: In-map drawing tools with real-time preview.
+</Note>
+
+#### Editor features
+
+<Steps>
+  <Step title="Access control">
+    - Only visible to super administrators
+    - Toggle button in layer controls panel
+    - "Λειτουργία Επεξεργασίας" (Editing Mode)
+  </Step>
+  
+  <Step title="Visual status system">
+    - ✓ Original data exists
+    - 💾 Locally saved edits
+    - ⚠️ Missing geometry
+    - 🎯 Selected for editing
+  </Step>
+  
+  <Step title="Contextual help">
+    - Textual definitions displayed during editing
+    - Auto-zoom to geometry location
+    - Street labels for orientation
+  </Step>
+  
+  <Step title="Drawing tools">
+    - **Point mode**: Single-click location markers
+    - **Polygon mode**: Multi-click boundary drawing
+    - Visual feedback during drawing
+    - Powered by Mapbox GL Draw
+  </Step>
+  
+  <Step title="Local persistence">
+    - Changes saved to browser localStorage
+    - Real-time preview on map
+    - Blue styling for edited geometries
+    - No server changes until export
+  </Step>
+  
+  <Step title="Export workflow">
+    - "Εξαγωγή Regulation.json" button
+    - Merges local edits with original data
+    - Downloads complete production-ready JSON
+    - Shows count of edited geometries
+    - Timestamped filename for versioning
+  </Step>
+</Steps>
+
+#### Editing workflow
+
+<Accordion title="1. Enable editing mode">
+  Click the editing toggle to activate:
+  - Street name labels appear
+  - Edit buttons show next to geometries
+  - Drawing tools become available
+</Accordion>
+
+<Accordion title="2. Select geometry">
+  Click edit button (✏️) next to any geometry:
+  - Map auto-zooms to location (if coordinates exist)
+  - Geometry entry highlighted in blue
+  - Textual definition displayed
+  - Drawing mode activated
+</Accordion>
+
+<Accordion title="3. Draw geometry">
+  Choose drawing mode and create shape:
+  - Points: Single click
+  - Polygons: Multiple clicks, auto-close
+  - Visual feedback during drawing
+</Accordion>
+
+<Accordion title="4. Automatic saving">
+  Geometry immediately:
+  - Saved to localStorage
+  - Displayed on map (blue styling)
+  - Marked with save icon (💾)
+</Accordion>
+
+<Accordion title="5. Export complete data">
+  Click export button to:
+  - Merge all edits with original
+  - Download regulation.json
+  - Use in production
+</Accordion>
+
+## Implementation notes
+
+### JSON schema
+
+Regulations must follow the defined schema:
+
+```bash
+./json-schemas/regulation.schema.json
+```
+
+Validate your regulation JSON against this schema before uploading.
+
+### City feature flag
+
+```prisma
+consultationsEnabled Boolean @default(false)
+```
+
+Cities must have this flag enabled to support consultations.
+
+### Regulation storage
+
+Regulation JSON files are stored externally (e.g., S3, CDN) and referenced by URL in the `Consultation.jsonUrl` field.
+
+## Future features
+
+<CardGroup cols={2}>
+  <Card title="Multi-regulation support" icon="layer-group">
+    Support multiple active consultations per city for different policies
+  </Card>
+  
+  <Card title="Version comparison" icon="code-compare">
+    Tools to compare different versions of regulations and track changes
+  </Card>
+  
+  <Card title="Analytics dashboard" icon="chart-line">
+    Track citizen engagement, popular sections, and comment patterns
+  </Card>
+  
+  <Card title="Export capabilities" icon="download">
+    Generate reports of public feedback for municipal review
+  </Card>
+</CardGroup>
+
+## Best practices
+
+<AccordionGroup>
+  <Accordion title="Start with clear structure">
+    Organize regulations into logical chapters and articles before defining geographic areas.
+  </Accordion>
+  
+  <Accordion title="Use descriptive IDs">
+    Choose meaningful IDs for references: `prohibited_areas` not `area1`.
+  </Accordion>
+  
+  <Accordion title="Provide textual definitions">
+    Always include textual boundary descriptions even when GeoJSON exists.
+  </Accordion>
+  
+  <Accordion title="Test on mobile">
+    Ensure map controls and navigation work well on mobile devices.
+  </Accordion>
+  
+  <Accordion title="Review comments regularly">
+    Establish a process for reviewing and responding to citizen feedback.
+  </Accordion>
+</AccordionGroup>
+
+## File reference
+
+<Card title="Key implementation files">
+  - `prisma/schema.prisma` - Consultation models (lines 856-918)
+  - `docs/consultations.prd.md` - Detailed PRD
+  - `json-schemas/regulation.schema.json` - Regulation JSON schema
+  - Map editor implementation (to be created)
+</Card>

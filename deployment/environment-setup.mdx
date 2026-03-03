@@ -1,0 +1,241 @@
+---
+title: Environment variables and configuration
+description: Configure OpenCouncil with environment variables for database, API keys, and service integrations
+---
+
+OpenCouncil uses environment variables to configure database connections, API keys, and external service integrations. This guide covers all required and optional environment variables.
+
+## Initial setup
+
+Copy the example environment file to create your configuration:
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` to add your specific values.
+
+<Note>
+  The `.env.example` file contains safe defaults for local development. Variables with defaults are not listed in the example file. See the [full environment reference](https://github.com/anomalyco/opencouncil/blob/main/src/env.mjs) for all available options.
+</Note>
+
+## Database connection
+
+<Warning>
+  OpenCouncil requires PostgreSQL 14+ with the PostGIS extension for geospatial features.
+</Warning>
+
+OpenCouncil uses two connection strings to support connection pooling in production:
+
+<CodeGroup>
+```bash Local development
+# Automatically set by development tools (Nix/Docker)
+DATABASE_URL="postgresql://opencouncil@localhost:5432/opencouncil?sslmode=disable"
+DIRECT_URL="postgresql://opencouncil@localhost:5432/opencouncil?sslmode=disable"
+```
+
+```bash Production with pooling
+# DATABASE_URL points to connection pooler
+DATABASE_URL="postgresql://user:password@pooler.example.com:5432/dbname?sslmode=require"
+
+# DIRECT_URL bypasses pooler for migrations and extensions
+DIRECT_URL="postgresql://user:password@direct.example.com:5432/dbname?sslmode=require"
+```
+
+```bash Production without pooling
+# Both point to the same database
+DATABASE_URL="postgresql://user:password@db.example.com:5432/dbname?sslmode=require"
+DIRECT_URL="postgresql://user:password@db.example.com:5432/dbname?sslmode=require"
+```
+</CodeGroup>
+
+### Database initialization variables
+
+These variables are used by Docker containers to initialize PostgreSQL:
+
+```bash
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+DATABASE_NAME=development
+```
+
+<Note>
+  When using local databases via Nix or Docker, the development tools automatically override `DATABASE_URL` and `DIRECT_URL` with the correct local values. You can keep your `.env` configured for remote databases.
+</Note>
+
+## Application URLs
+
+```bash
+# Base URL for the application (used for authentication callbacks)
+NEXTAUTH_URL=http://localhost:3000
+
+# Secret for NextAuth.js session encryption
+# Generate with: openssl rand -base64 32
+NEXTAUTH_SECRET=your_generated_secret_here
+```
+
+<Warning>
+  Always generate a unique `NEXTAUTH_SECRET` for production deployments. Never commit secrets to version control.
+</Warning>
+
+## Required API keys
+
+OpenCouncil requires several API keys for core functionality:
+
+<Steps>
+  <Step title="Email service (Resend)">
+    Used for authentication emails and notifications.
+    
+    ```bash
+    RESEND_API_KEY=your_resend_api_key
+    ```
+    
+    Get your API key from [Resend Dashboard](https://resend.com/api-keys)
+  </Step>
+  
+  <Step title="AI summaries (Anthropic Claude)">
+    Generates meeting summaries and powers the chat interface.
+    
+    ```bash
+    ANTHROPIC_API_KEY=your_anthropic_api_key
+    ```
+    
+    Get your API key from [Anthropic Console](https://console.anthropic.com/)
+  </Step>
+  
+  <Step title="Search (Elasticsearch)">
+    Full-text search across transcripts.
+    
+    ```bash
+    ELASTICSEARCH_URL=http://localhost:9200
+    ELASTICSEARCH_API_KEY=your_elasticsearch_api_key
+    ```
+  </Step>
+  
+  <Step title="Task processing server">
+    Backend server for transcription and async jobs.
+    
+    ```bash
+    TASK_API_URL=http://localhost:3005
+    TASK_API_KEY=your_task_api_key
+    ```
+    
+    See [opencouncil-tasks](https://github.com/schemalabz/opencouncil-tasks) for setup.
+  </Step>
+  
+  <Step title="Maps (Mapbox)">
+    Interactive maps for location-based features.
+    
+    ```bash
+    NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=your_mapbox_access_token
+    ```
+    
+    Get your token from [Mapbox Account](https://account.mapbox.com/access-tokens/)
+  </Step>
+</Steps>
+
+## Storage configuration
+
+OpenCouncil uses S3-compatible storage for media files:
+
+```bash
+# DigitalOcean Spaces (or any S3-compatible storage)
+DO_SPACES_ENDPOINT=https://fra1.digitaloceanspaces.com
+DO_SPACES_KEY=your_do_spaces_key
+DO_SPACES_SECRET=your_do_spaces_secret
+DO_SPACES_BUCKET=your_do_spaces_bucket
+CDN_URL=https://data.opencouncil.gr
+```
+
+## Optional integrations
+
+### Google Calendar
+
+Automate meeting scheduling:
+
+```bash
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
+GOOGLE_CALENDAR_REFRESH_TOKEN=
+GOOGLE_CALENDAR_ID=
+GOOGLE_CALENDAR_ENABLED=true
+```
+
+### Google AI (Gemini)
+
+Alternative AI provider:
+
+```bash
+GOOGLE_API_KEY=your_google_api_key
+```
+
+### Cron jobs
+
+Secure cron endpoints (e.g., `/api/cron/poll-decisions`):
+
+```bash
+# Generate with: openssl rand -base64 32
+CRON_SECRET=your_cron_secret
+```
+
+### Basic authentication
+
+Password-protect your deployment:
+
+```bash
+BASIC_AUTH_USERNAME=admin
+BASIC_AUTH_PASSWORD=secure_password
+```
+
+## Development-specific variables
+
+### Preview server access
+
+Connect to preview deployment databases:
+
+```bash
+# SSH target for preview server (for --preview-db flag)
+OC_PREVIEW_SSH=root@159.89.98.26
+```
+
+### Port configuration
+
+Customize ports for local development:
+
+```bash
+OC_APP_PORT=3000
+OC_DB_PORT=5432
+OC_PRISMA_STUDIO_PORT=5555
+```
+
+## Environment validation
+
+OpenCouncil validates environment variables at startup using [t3-env](https://env.t3.gg/). If required variables are missing or invalid, the application will fail to start with a clear error message.
+
+Validation schema: `src/env.mjs`
+
+### Skip validation (build time only)
+
+During builds, you can skip validation for server-side secrets:
+
+```bash
+SKIP_ENV_VALIDATION=1
+```
+
+<Warning>
+  Never skip validation in production runtime. This flag is only for build-time optimizations where secrets aren't needed.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Docker deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Nix deployment" icon="snowflake" href="/deployment/nix">
+    Deploy with Nix flakes
+  </Card>
+  <Card title="Database setup" icon="database" href="/deployment/database">
+    Configure PostgreSQL and PostGIS
+  </Card>
+</CardGroup>

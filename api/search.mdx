@@ -1,0 +1,312 @@
+---
+title: Search
+description: Search subjects using hybrid text and semantic search
+---
+
+## Search subjects
+
+<CodeGroup>
+```bash Request
+POST /api/search
+Content-Type: application/json
+
+{
+  "query": "ηλεκτρικά πατίνια",
+  "cityIds": ["athens", "chania"],
+  "page": 1,
+  "pageSize": 10,
+  "detailed": false
+}
+```
+
+```json Response
+{
+  "results": [
+    {
+      "id": "subject-1",
+      "name": "Κανονισμός χρήσης ηλεκτρικών πατινιών",
+      "description": "Συζήτηση για τη ρύθμιση της χρήσης ηλεκτρικών πατινιών στην πόλη",
+      "councilMeeting": {
+        "id": "meeting-2024-03-15",
+        "name": "Τακτική Συνεδρίαση",
+        "dateTime": "2024-03-15T18:00:00.000Z",
+        "city": {
+          "id": "athens",
+          "name": "Αθήνα",
+          "name_en": "Athens"
+        }
+      },
+      "topic": {
+        "id": "transportation",
+        "name": "Μεταφορές",
+        "name_en": "Transportation",
+        "colorHex": "#2196F3"
+      },
+      "introducedBy": {
+        "id": "person-1",
+        "name": "Γιώργος Παπαδάκης",
+        "name_en": "George Papadakis"
+      },
+      "location": {
+        "id": "loc-1",
+        "type": "point",
+        "text": "Κέντρο Αθήνας",
+        "coordinates": {
+          "x": 23.7275,
+          "y": 37.9838
+        }
+      },
+      "score": 0.95,
+      "matchedSpeakerSegmentIds": ["segment-1", "segment-2"],
+      "highlights": [
+        {
+          "field": "description",
+          "matches": ["<em>ηλεκτρικά πατίνια</em>"]
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "total": 42,
+    "page": 1,
+    "pageSize": 10,
+    "totalPages": 5
+  }
+}
+```
+</CodeGroup>
+
+Search for subjects using a hybrid search approach that combines traditional text search with semantic search. Supports filtering by city, person, party, topic, date range, and geographic location.
+
+### Request body
+
+<ParamField body="query" type="string" required>
+  The search query text
+</ParamField>
+
+<ParamField body="cityIds" type="array">
+  Array of city IDs to filter by
+</ParamField>
+
+<ParamField body="personIds" type="array">
+  Array of person IDs to filter by
+</ParamField>
+
+<ParamField body="partyIds" type="array">
+  Array of party IDs to filter by
+</ParamField>
+
+<ParamField body="topicIds" type="array">
+  Array of topic IDs to filter by
+</ParamField>
+
+<ParamField body="dateRange" type="object">
+  Date range for filtering results
+  <Expandable title="properties">
+    <ParamField body="start" type="string">
+      Start date in ISO 8601 format (e.g., "2024-01-01T00:00:00Z")
+    </ParamField>
+    <ParamField body="end" type="string">
+      End date in ISO 8601 format (e.g., "2024-12-31T23:59:59Z")
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="location" type="object">
+  Geographic location filter
+  <Expandable title="properties">
+    <ParamField body="point" type="object" required>
+      Center point coordinates
+      <Expandable title="properties">
+        <ParamField body="lat" type="number" required>
+          Latitude
+        </ParamField>
+        <ParamField body="lon" type="number" required>
+          Longitude
+        </ParamField>
+      </Expandable>
+    </ParamField>
+    <ParamField body="radius" type="number" default="5">
+      Search radius in kilometers
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="page" type="integer" default="1">
+  Page number (minimum: 1)
+</ParamField>
+
+<ParamField body="pageSize" type="integer" default="10">
+  Results per page (minimum: 1, maximum: 100)
+</ParamField>
+
+<ParamField body="detailed" type="boolean" default="false">
+  Whether to return detailed results with speaker segment text. When true, includes full `speakerSegments` array in results.
+</ParamField>
+
+### Response
+
+<ResponseField name="results" type="array">
+  Array of search results
+  <Expandable title="SearchResultLight properties">
+    <ResponseField name="id" type="string">
+      Subject identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Subject name
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Subject description
+    </ResponseField>
+    <ResponseField name="councilMeeting" type="object">
+      Meeting information including city data
+    </ResponseField>
+    <ResponseField name="topic" type="object | null">
+      Associated topic with id, name, name_en, and colorHex
+    </ResponseField>
+    <ResponseField name="introducedBy" type="object | null">
+      Person who introduced the subject
+    </ResponseField>
+    <ResponseField name="location" type="object | null">
+      Geographic location data
+      <Expandable title="properties">
+        <ResponseField name="id" type="string">
+          Location identifier
+        </ResponseField>
+        <ResponseField name="type" type="string">
+          Location type: `point`, `lineString`, or `polygon`
+        </ResponseField>
+        <ResponseField name="text" type="string">
+          Location description
+        </ResponseField>
+        <ResponseField name="coordinates" type="object">
+          Coordinate data (x: longitude, y: latitude)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="score" type="number">
+      Search relevance score
+    </ResponseField>
+    <ResponseField name="matchedSpeakerSegmentIds" type="array | null">
+      Array of speaker segment IDs that matched the search query
+    </ResponseField>
+    <ResponseField name="highlights" type="array">
+      Array of highlighted text matches
+    </ResponseField>
+    <ResponseField name="speakerSegments" type="array">
+      Full speaker segment data (only when `detailed: true`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="pagination" type="object">
+  Pagination metadata
+  <Expandable title="properties">
+    <ResponseField name="total" type="integer">
+      Total number of results
+    </ResponseField>
+    <ResponseField name="page" type="integer">
+      Current page number
+    </ResponseField>
+    <ResponseField name="pageSize" type="integer">
+      Number of results per page
+    </ResponseField>
+    <ResponseField name="totalPages" type="integer">
+      Total number of pages
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+<ResponseField name="400" type="Error">
+  Invalid request parameters
+  ```json
+  {
+    "error": {
+      "code": "INVALID_REQUEST",
+      "message": "Invalid request parameters",
+      "details": [
+        {
+          "code": "invalid_type",
+          "message": "Expected string, received number",
+          "path": ["query"]
+        }
+      ]
+    }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Internal server error
+  ```json
+  {
+    "error": {
+      "code": "SEARCH_ERROR",
+      "message": "An error occurred while performing the search",
+      "details": "Connection timeout"
+    }
+  }
+  ```
+</ResponseField>
+
+## Search configuration
+
+The search API uses the following configuration:
+
+- **Semantic search**: Enabled by default, combining text and vector similarity
+- **Rank window size**: 100 results are considered for ranking
+- **Rank constant**: 60 (controls the balance between text and semantic scores)
+- **Maximum page size**: 100 results per page
+
+## Use cases
+
+### Basic text search
+
+```json
+{
+  "query": "πάρκα",
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+### Filter by city and date range
+
+```json
+{
+  "query": "οικονομικά",
+  "cityIds": ["athens"],
+  "dateRange": {
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-12-31T23:59:59Z"
+  }
+}
+```
+
+### Geographic search
+
+```json
+{
+  "query": "ανακαίνιση",
+  "location": {
+    "point": {
+      "lat": 37.9838,
+      "lon": 23.7275
+    },
+    "radius": 10
+  }
+}
+```
+
+### Detailed results with speaker segments
+
+```json
+{
+  "query": "κυκλοφορία",
+  "cityIds": ["athens"],
+  "detailed": true,
+  "pageSize": 5
+}
+```

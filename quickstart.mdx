@@ -1,80 +1,365 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Get OpenCouncil running locally in minutes with Docker, manual setup, or Nix
 ---
 
-## Get started in three steps
+Get OpenCouncil up and running on your local machine in minutes. This guide covers three setup methods: Docker (recommended), manual setup, and Nix flakes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+<CardGroup cols={2}>
+  <Card title="Node.js 18+" icon="node-js">
+    Required for running the Next.js application
+  </Card>
+  <Card title="PostgreSQL 14+" icon="database">
+    With PostGIS extension for geospatial data
+  </Card>
+  <Card title="Docker" icon="docker">
+    Recommended for easiest setup
+  </Card>
+  <Card title="Nix (optional)" icon="snowflake">
+    For reproducible development environments
+  </Card>
+</CardGroup>
+
+## Docker setup (recommended)
+
+The fastest way to get started is using Docker. This method automatically sets up the database, runs migrations, and seeds sample data.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/schemalabz/opencouncil.git
+    cd opencouncil
+    ```
+  </Step>
+
+  <Step title="Create environment file">
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Edit `.env` and add your API keys. At minimum, you'll need:
+    
+    - `NEXTAUTH_SECRET` - Generate with `openssl rand -base64 32`
+    - `RESEND_API_KEY` - For email authentication (get from [resend.com](https://resend.com))
+    - `ANTHROPIC_API_KEY` - For AI features (get from [anthropic.com](https://anthropic.com))
+    
+    <Tip>
+      See the [environment setup guide](/deployment/environment-setup) for all configuration options
+    </Tip>
+  </Step>
+
+  <Step title="Start the application">
+    ```bash
+    ./run.sh
+    ```
+    
+    This script will:
+    - Start PostgreSQL with PostGIS
+    - Run database migrations
+    - Seed the database with sample data
+    - Launch the Next.js dev server
+    
+    The application will be available at `http://localhost:3000`
+  </Step>
+
+  <Step title="Access the application">
+    Open your browser and navigate to:
+    
+    - **Frontend**: http://localhost:3000
+    - **Prisma Studio** (database GUI): Run `npm run prisma:studio`
+    
+    <Note>
+      Sample cities and meetings are automatically seeded. Look for test users in the database for authentication.
+    </Note>
+  </Step>
+</Steps>
+
+### Advanced Docker options
+
+The `run.sh` script supports several options for different use cases:
+
+<Accordion title="Run with external database">
+  Use your own PostgreSQL instance instead of Docker:
+  
+  ```bash
+  ./run.sh --skip-db
+  ```
+  
+  Make sure `DATABASE_URL` in `.env` points to your database.
+</Accordion>
+
+<Accordion title="Production mode">
+  Build and run in production mode:
+  
+  ```bash
+  ./run.sh --prod
+  ```
+</Accordion>
+
+<Accordion title="Multiple instances">
+  The script automatically detects port conflicts and uses alternative ports:
+  
+  - App: 3000, 3001, 3002, ...
+  - Database: 5432, 5433, 5434, ...
+  - Prisma Studio: 5555, 5556, 5557, ...
+</Accordion>
+
+<Accordion title="Clean up Docker resources">
+  Remove all containers, volumes, and networks:
+  
+  ```bash
+  ./run.sh --clean
+  ```
+</Accordion>
+
+## Manual setup
+
+If you prefer to run without Docker:
+
+<Steps>
+  <Step title="Clone and install dependencies">
+    ```bash
+    git clone https://github.com/schemalabz/opencouncil.git
+    cd opencouncil
+    npm install
+    ```
+  </Step>
+
+  <Step title="Set up PostgreSQL database">
+    You have two options:
+    
+    **Option 1: Use Docker for database only**
+    ```bash
+    docker compose up db -d
+    ```
+    
+    **Option 2: Use your own PostgreSQL instance**
+    
+    Make sure it has the PostGIS extension installed:
+    ```sql
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    ```
+    
+    Set the `DATABASE_URL` in your `.env` file:
+    ```bash
+    DATABASE_URL="postgresql://user:password@host:port/database"
+    ```
+  </Step>
+
+  <Step title="Run database migrations">
+    ```bash
+    # Run migrations
+    npx prisma migrate deploy
+    
+    # Generate Prisma client
+    npx prisma generate
+    ```
+  </Step>
+
+  <Step title="Seed the database (optional)">
+    Load sample data for development:
+    
+    ```bash
+    npx prisma db seed
+    ```
+    
+    <Info>
+      This downloads seed data from GitHub and populates your database with sample cities, meetings, and users.
+    </Info>
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    npm run dev
+    ```
+    
+    The application will be available at `http://localhost:3000`
+  </Step>
+</Steps>
+
+## Nix setup
+
+OpenCouncil supports a flake-based development environment for reproducible builds.
+
+<Steps>
+  <Step title="Install Nix with flakes">
+    If you don't have Nix installed:
+    
+    ```bash
+    curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+    ```
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/schemalabz/opencouncil.git
+    cd opencouncil
+    ```
+  </Step>
+
+  <Step title="Enter the Nix development shell">
+    ```bash
+    nix develop
+    ```
+    
+    This provides all dependencies (Node.js, PostgreSQL, etc.) in an isolated environment.
+  </Step>
+
+  <Step title="Run the development environment">
+    ```bash
+    nix run .#dev
+    ```
+    
+    This starts the full stack with process-compose, including:
+    - PostgreSQL database
+    - Next.js development server
+    - Database migrations
+    
+    <Tip>
+      Use `nix run .#dev -- --help` to see all available options and database modes
+    </Tip>
+  </Step>
+</Steps>
+
+For detailed Nix configuration options, see the [Nix deployment guide](/deployment/nix).
+
+## Environment variables
+
+Create a `.env` file with these required variables:
+
+<CodeGroup>
+```bash Database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/development"
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/development"
+```
+
+```bash Authentication
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
+RESEND_API_KEY="re_..."
+```
+
+```bash AI & Search
+ANTHROPIC_API_KEY="sk-ant-..."
+ELASTICSEARCH_URL="http://localhost:9200"
+ELASTICSEARCH_API_KEY="your_key"
+```
+
+```bash Tasks & Storage
+TASK_API_URL="http://localhost:3005"
+TASK_API_KEY="your_task_api_key"
+AWS_ACCESS_KEY_ID="your_key"
+AWS_SECRET_ACCESS_KEY="your_secret"
+AWS_ENDPOINT_URL_S3="https://your-region.digitaloceanspaces.com"
+```
+</CodeGroup>
+
+<Warning>
+  Never commit your `.env` file to version control. The `.env.example` file contains all variable names with placeholder values.
+</Warning>
+
+For a complete list of environment variables, see the [environment setup guide](/deployment/environment-setup).
+
+## Development tools
+
+Once running, you have access to these tools:
+
+<CardGroup cols={2}>
+  <Card title="Prisma Studio" icon="database">
+    Visual database editor
+    ```bash
+    npm run prisma:studio
+    ```
+  </Card>
+  
+  <Card title="Run tests" icon="flask">
+    Execute test suite
+    ```bash
+    npm test
+    ```
+  </Card>
+  
+  <Card title="Type checking" icon="circle-check">
+    Validate TypeScript
+    ```bash
+    npm run build
+    ```
+  </Card>
+  
+  <Card title="Linting" icon="broom">
+    Check code quality
+    ```bash
+    npm run lint
+    ```
+  </Card>
+</CardGroup>
+
+## Troubleshooting
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Port already in use">
+    If port 3000 is already taken, the Docker script will automatically use the next available port (3001, 3002, etc.). For manual setup, change the port in `package.json`:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    ```json
+    "dev": "next dev -p 3001"
+    ```
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+
+  <Accordion title="Database connection error">
+    Ensure PostgreSQL is running and has the PostGIS extension:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    ```bash
+    # Check if PostgreSQL is running
+    docker compose ps
+    
+    # Or for manual setup
+    psql -U postgres -c "SELECT PostGIS_version();"
+    ```
+  </Accordion>
+
+  <Accordion title="Prisma migration errors">
+    Reset the database and re-run migrations:
+    
+    ```bash
+    npm run prisma:migrate:reset
+    ```
+    
+    <Warning>This will delete all data in your database</Warning>
+  </Accordion>
+
+  <Accordion title="Seed data not loading">
+    The seed script automatically downloads data from GitHub. If it fails, check your internet connection or download manually:
+    
+    ```bash
+    curl -o prisma/seed_data.json https://raw.githubusercontent.com/schemalabz/opencouncil/main/prisma/seed_data.json
+    ```
+  </Accordion>
+
+  <Accordion title="Module not found errors">
+    Reinstall dependencies:
+    
+    ```bash
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
   </Accordion>
 </AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Learn how OpenCouncil is structured
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Join the development community
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the REST API
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/docker">
+    Deploy to production
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

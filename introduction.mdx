@@ -1,0 +1,150 @@
+---
+title: Introduction to OpenCouncil
+description: An open-source platform making local government more transparent and accessible through AI-powered meeting transcription, analysis, and search.
+---
+
+## Welcome to OpenCouncil
+
+OpenCouncil is an open-source platform that digitizes, transcribes, and makes municipal council meetings searchable, helping citizens engage with their local government. Developed by [Schema Labs](https://schemalabs.gr), a non-profit organization building technology to strengthen democracy.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get OpenCouncil running locally in minutes with Docker or manual setup
+  </Card>
+  <Card
+    title="Architecture"
+    icon="diagram-project"
+    href="/architecture"
+  >
+    Understand the technical architecture and system design
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/overview"
+  >
+    Explore the REST API endpoints and integrate with OpenCouncil
+  </Card>
+  <Card
+    title="Contributing"
+    icon="handshake"
+    href="/development/contributing"
+  >
+    Learn how to contribute to OpenCouncil through our human-AI workflow
+  </Card>
+</CardGroup>
+
+## Core features
+
+<CardGroup cols={2}>
+  <Card title="Automatic transcription" icon="microphone">
+    Word-for-word transcription of council meetings with AI-powered speaker recognition and voiceprint identification
+  </Card>
+  <Card title="Smart summaries" icon="sparkles">
+    AI-generated summaries of council member statements with automatic categorization of discussion subjects
+  </Card>
+  <Card title="Advanced search" icon="magnifying-glass">
+    Full-text search across all council meetings powered by Elasticsearch with natural language filtering
+  </Card>
+  <Card title="Meeting highlights" icon="film">
+    Create and share custom video clips from council meeting moments with automatic generation and editing capabilities
+  </Card>
+  <Card title="Diavgeia integration" icon="link">
+    Link council decisions with their official publications on Greece's government transparency portal
+  </Card>
+  <Card title="Notification system" icon="bell">
+    Personalized updates for citizens via email, WhatsApp, and SMS based on topics, people, and locations
+  </Card>
+  <Card title="AI chat assistant" icon="comments">
+    Ask questions about council meetings using natural language powered by Anthropic Claude
+  </Card>
+  <Card title="Open data" icon="globe">
+    All data available through a public REST API for transparency and integration
+  </Card>
+</CardGroup>
+
+## Key capabilities
+
+### Voice recognition
+
+Speaker identification using voiceprints allows the system to automatically tag who is speaking during council meetings, making it easy to track individual contributions.
+
+### Subject analysis
+
+Automatic categorization of discussion subjects helps organize meeting content and makes it easier to find relevant topics across multiple meetings.
+
+### Role-based access
+
+Granular permissions for different user types ensure that administrators can manage content while maintaining public transparency.
+
+### Discord integration
+
+Real-time admin alerts for system events keep municipal staff informed about transcription progress, errors, and important updates.
+
+### Multilingual support
+
+<Note>
+  Coming soon: Support for multicultural cities with multiple languages
+</Note>
+
+## Technology stack
+
+OpenCouncil is built with modern web technologies:
+
+- **Frontend**: Next.js 14 with TypeScript and App Router
+- **Database**: PostgreSQL with PostGIS for geospatial data
+- **ORM**: Prisma for type-safe database access
+- **Search**: Elasticsearch for full-text search
+- **AI**: Anthropic Claude for summaries and chat
+- **Storage**: S3-compatible object storage (DigitalOcean Spaces)
+- **Authentication**: Auth.js (NextAuth v5)
+- **UI**: Tailwind CSS with Radix UI components
+
+## Use cases
+
+<AccordionGroup>
+  <Accordion title="Citizens">
+    Search council meetings to find discussions about topics that matter to you, receive notifications when your interests are discussed, and engage with local government decisions.
+  </Accordion>
+  <Accordion title="Journalists">
+    Quickly find quotes and statements from council members, track voting patterns, and identify newsworthy discussions across multiple municipalities.
+  </Accordion>
+  <Accordion title="Researchers">
+    Analyze local government decision-making patterns, study policy discussions, and access structured data through the public API.
+  </Accordion>
+  <Accordion title="Municipal staff">
+    Streamline the publication of meeting transcripts, automatically generate summaries, and improve transparency with minimal manual effort.
+  </Accordion>
+</AccordionGroup>
+
+## Community and support
+
+<CardGroup cols={3}>
+  <Card title="Website" icon="globe" href="https://www.opencouncil.gr">
+    Visit the official website
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.gg/VdwtVG43WB">
+    Join our community
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/schemalabz/opencouncil">
+    View the source code
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<Steps>
+  <Step title="Get started">
+    Follow the [quickstart guide](/quickstart) to set up OpenCouncil locally
+  </Step>
+  <Step title="Understand the architecture">
+    Read the [architecture overview](/architecture) to learn how the system works
+  </Step>
+  <Step title="Contribute">
+    Check out the [contributing guide](/development/contributing) to join our human-AI workflow
+  </Step>
+</Steps>

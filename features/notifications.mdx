@@ -1,0 +1,562 @@
+---
+title: Personalized notifications
+description: Multi-channel notification system that matches users with relevant council meeting subjects based on interests and location
+---
+
+OpenCouncil's notification system automatically alerts citizens about council meeting subjects that match their interests, location preferences, and subscribed topics. Notifications are delivered via email, WhatsApp, and SMS with intelligent matching and approval workflows.
+
+## Notification channels
+
+<CardGroup cols={3}>
+  <Card title="Email" icon="envelope">
+    Rich HTML emails via Resend with formatted content, links, and meeting details.
+  </Card>
+  
+  <Card title="WhatsApp" icon="whatsapp">
+    Template messages via Bird API with quick action buttons and meeting summaries.
+  </Card>
+  
+  <Card title="SMS" icon="message">
+    Automatic fallback to SMS when WhatsApp delivery fails, ensuring message delivery.
+  </Card>
+</CardGroup>
+
+## How notifications work
+
+The notification system uses a sophisticated matching engine to connect users with relevant content:
+
+<Steps>
+  <Step title="Meeting processing">
+    When a meeting is summarized, the system identifies subjects and their importance levels based on topic and proximity.
+  </Step>
+  
+  <Step title="User matching">
+    Each subject is matched against user preferences using four priority rules:
+    - High importance subjects notify everyone
+    - Normal importance subjects notify users interested in the topic
+    - Near proximity subjects notify users within 400m
+    - Wide proximity subjects notify users within 1.5km
+  </Step>
+  
+  <Step title="Notification creation">
+    Matched notifications are created in "pending" status, grouped by meeting and user, with delivery records for each channel.
+  </Step>
+  
+  <Step title="Approval workflow">
+    Depending on administrative body settings, notifications are either:
+    - Auto-sent immediately after creation
+    - Held for admin approval before sending
+    - Disabled entirely
+  </Step>
+  
+  <Step title="Multi-channel delivery">
+    Approved notifications are sent with rate limiting (500ms delays) via:
+    - Email with HTML formatting
+    - WhatsApp templates with SMS fallback
+  </Step>
+</Steps>
+
+## Matching rules
+
+The notification matching engine uses four rules with clear priorities:
+
+<Tabs>
+  <Tab title="Rule 1: High importance">
+    **Notify everyone regardless of preferences**
+    
+    When a subject is marked as high importance:
+    
+    ```typescript
+    if (topicImportance === 'high') {
+      matches.add({ subjectId: subject.id, reason: 'generalInterest' });
+      continue;
+    }
+    ```
+    
+    <Info>
+      Example: Budget approvals, major infrastructure decisions, emergency measures
+    </Info>
+    
+    Admins set importance levels per subject to control notification scope.
+  </Tab>
+  
+  <Tab title="Rule 2: Topic matching">
+    **Notify users interested in the subject's topic**
+    
+    When a subject has normal importance:
+    
+    ```typescript
+    if (topicImportance === 'normal' && subject.topicId) {
+      const isInterestedInTopic = userPref.interests.some(
+        t => String(t.id).trim() === String(subject.topicId).trim()
+      );
+      if (isInterestedInTopic) {
+        matches.add({ subjectId: subject.id, reason: 'topic' });
+      }
+    }
+    ```
+    
+    <Info>
+      Example: User interested in "Transportation" receives notifications about new bike lane discussions
+    </Info>
+    
+    Users select topic interests during onboarding or in their profile.
+  </Tab>
+  
+  <Tab title="Rule 3: Near proximity">
+    **Notify users within 400 meters of subject location**
+    
+    When a subject has "near" proximity importance:
+    
+    ```typescript
+    if (proximityImportance === 'near' && subject.locationId) {
+      const distanceMeters = 400;
+      const isNearby = await calculateProximityMatches(
+        userLocationIds,
+        subject.locationId,
+        distanceMeters
+      );
+      if (isNearby) {
+        matches.add({ subjectId: subject.id, reason: 'proximity' });
+      }
+    }
+    ```
+    
+    <Info>
+      Example: Construction project on your street, new parking restrictions near your home
+    </Info>
+    
+    Uses PostGIS `ST_DWithin` for efficient geographic queries.
+  </Tab>
+  
+  <Tab title="Rule 4: Wide proximity">
+    **Notify users within 1.5 kilometers of subject location**
+    
+    When a subject has "wide" proximity importance:
+    
+    ```typescript
+    if (proximityImportance === 'wide' && subject.locationId) {
+      const distanceMeters = 1500;
+      const isNearby = await calculateProximityMatches(
+        userLocationIds,
+        subject.locationId,
+        distanceMeters
+      );
+      if (isNearby) {
+        matches.add({ subjectId: subject.id, reason: 'proximity' });
+      }
+    }
+    ```
+    
+    <Info>
+      Example: New park in your neighborhood, traffic changes affecting your area
+    </Info>
+    
+    Wider radius for subjects with broader community impact.
+  </Tab>
+</Tabs>
+
+From `src/lib/notifications/matching.ts:31-94`
+
+## User preferences
+
+Users configure notification preferences to control what they receive:
+
+<AccordionGroup>
+  <Accordion title="Topic interests">
+    Users select topics they care about from a predefined list:
+    
+    - Transportation & Traffic
+    - Environment & Parks
+    - Urban Development
+    - Education & Culture
+    - Public Safety
+    - Budget & Finance
+    - Health & Social Services
+    
+    Topics are matched against subject classifications from the AI summarization system.
+  </Accordion>
+  
+  <Accordion title="Location subscriptions">
+    Users add specific locations they want to track:
+    
+    - **Home address** - Get notified about nearby decisions
+    - **Work location** - Stay informed about your commute area
+    - **Other places** - Parks, schools, businesses you care about
+    
+    Each location is stored as a geographic point with coordinate-based proximity matching.
+  </Accordion>
+  
+  <Accordion title="Delivery channels">
+    Users choose how they want to receive notifications:
+    
+    - **Email only** - Traditional email notifications
+    - **Messages only** - WhatsApp or SMS notifications
+    - **Both channels** - Maximum coverage with email + messages
+    - **None** - Pause all notifications
+    
+    A separate delivery record is created for each enabled channel.
+  </Accordion>
+</AccordionGroup>
+
+## Approval workflows
+
+Administrative bodies control notification behavior:
+
+<Tabs>
+  <Tab title="Auto-send (recommended)">
+    ```typescript
+    notificationBehavior: 'NOTIFICATIONS_AUTO'
+    ```
+    
+    Notifications are automatically sent after meeting summarization:
+    
+    1. Summarize task completes
+    2. Notifications created in pending status
+    3. System immediately calls `releaseNotifications()`
+    4. Emails and messages sent with rate limiting
+    5. Discord alert sent to admins with delivery stats
+    
+    <Info>
+      Best for transparent governance - citizens are immediately informed about new decisions.
+    </Info>
+  </Tab>
+  
+  <Tab title="Manual approval">
+    ```typescript
+    notificationBehavior: 'NOTIFICATIONS_PENDING'
+    ```
+    
+    Notifications wait for admin approval:
+    
+    1. Summarize task completes
+    2. Notifications created in pending status
+    3. Discord alert sent to admins with approval link
+    4. Admin reviews and approves via UI
+    5. System calls `releaseNotifications()` for approved batch
+    
+    <Info>
+      Useful when you want to review content before notifying citizens.
+    </Info>
+  </Tab>
+  
+  <Tab title="Disabled">
+    ```typescript
+    notificationBehavior: 'NOTIFICATIONS_DISABLED'
+    ```
+    
+    No notifications are created:
+    
+    - Meeting summarization completes
+    - Notification creation is skipped
+    - No delivery records generated
+    
+    <Warning>
+      Use only if you have an alternative notification system or don't want to notify citizens.
+    </Warning>
+  </Tab>
+</Tabs>
+
+From `src/lib/tasks/summarize.ts:194-246`
+
+## Delivery implementation
+
+The notification delivery system handles multi-channel sending with graceful fallbacks:
+
+<CodeGroup>
+```typescript Email delivery
+async function sendEmailDelivery(delivery: NotificationDelivery) {
+  const result = await sendEmail({
+    from: 'OpenCouncil <notifications@opencouncil.gr>',
+    to: delivery.email,
+    subject: delivery.title,
+    html: delivery.body
+  });
+  
+  if (result.success) {
+    await updateDeliveryStatus(delivery.id, 'sent');
+    return true;
+  }
+  
+  await updateDeliveryStatus(delivery.id, 'failed');
+  return false;
+}
+```
+
+```typescript Message delivery with fallback
+async function sendMessageDelivery(delivery: NotificationDelivery) {
+  // Try WhatsApp first
+  const whatsappResult = await sendWhatsAppMessage(
+    delivery.phone,
+    notification.type,
+    templateParams
+  );
+  
+  if (whatsappResult.success) {
+    await updateDeliveryStatus(delivery.id, 'sent', 'whatsapp');
+    return true;
+  }
+  
+  // Fallback to SMS
+  const smsResult = await sendSMSMessage(delivery.phone, delivery.body);
+  
+  if (smsResult.success) {
+    await updateDeliveryStatus(delivery.id, 'sent', 'sms');
+    return true;
+  }
+  
+  await updateDeliveryStatus(delivery.id, 'failed');
+  return false;
+}
+```
+
+```typescript Rate limiting
+for (const delivery of pendingDeliveries) {
+  try {
+    await sendDelivery(delivery);
+    
+    // 500ms delay = ~2 requests per second
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } catch (error) {
+    console.error(`Error sending delivery ${delivery.id}:`, error);
+    await updateDeliveryStatus(delivery.id, 'failed');
+  }
+}
+```
+</CodeGroup>
+
+From `src/lib/notifications/deliver.ts:29-174`
+
+<Warning>
+  **Rate limiting is critical** - Without the 500ms delay, you risk hitting API rate limits on Resend, Bird, or other delivery services.
+</Warning>
+
+## Notification impact calculation
+
+Before creating notifications, calculate the impact to estimate reach:
+
+```typescript
+const impact = await calculateNotificationImpact(
+  subjects,
+  usersWithPreferences,
+  subjectImportanceOverrides
+);
+
+console.log(`Will notify ${impact.totalUsers} unique users`);
+console.log('Per-subject breakdown:', impact.subjectImpact);
+// {
+//   'subject-123': 45,  // 45 users will be notified
+//   'subject-456': 12,  // 12 users will be notified
+// }
+```
+
+From `src/lib/notifications/matching.ts:100-145`
+
+<Info>
+  Impact calculation is useful for admin dashboards to show how many people will be notified before approval.
+</Info>
+
+## Configuration
+
+Set up notification services in your environment:
+
+<CodeGroup>
+```bash .env
+# Email via Resend
+RESEND_API_KEY=re_your_resend_api_key
+
+# WhatsApp & SMS via Bird
+BIRD_API_KEY=your_bird_api_key
+BIRD_WORKSPACE_ID=your_workspace_id
+BIRD_CHANNEL_ID=your_channel_id
+
+# Application URLs for notification links
+NEXTAUTH_URL=https://opencouncil.gr
+
+# Optional: Discord alerts for admins
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+```typescript Resend setup
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+export async function sendEmail({
+  from,
+  to,
+  subject,
+  html
+}: EmailOptions) {
+  try {
+    await resend.emails.send({ from, to, subject, html });
+    return { success: true };
+  } catch (error) {
+    console.error('Resend error:', error);
+    return { success: false, error };
+  }
+}
+```
+
+```typescript Bird API setup
+const BIRD_API_URL = 'https://api.bird.com/workspaces';
+
+export async function sendWhatsAppMessage(
+  phone: string,
+  notificationType: string,
+  params: Record<string, string>
+) {
+  const response = await fetch(
+    `${BIRD_API_URL}/${BIRD_WORKSPACE_ID}/channels/${BIRD_CHANNEL_ID}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `AccessKey ${BIRD_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        receiver: { contacts: [{ identifierValue: phone }] },
+        template: { /* WhatsApp template */ },
+        parameters: params
+      })
+    }
+  );
+  
+  return { success: response.ok };
+}
+```
+</CodeGroup>
+
+## Welcome notifications
+
+New users receive a welcome notification with platform information:
+
+```typescript
+import { sendWelcomeNotification } from '@/lib/notifications/welcome';
+
+await sendWelcomeNotification({
+  userId: newUser.id,
+  email: newUser.email,
+  name: newUser.name,
+  language: 'el' // Greek locale
+});
+```
+
+Welcome emails include:
+- Platform introduction
+- How to set up preferences
+- Examples of notification types
+- Links to user profile and documentation
+
+From `src/lib/notifications/welcome.ts`
+
+## Notification tokens
+
+Unsubscribe and preference management uses secure tokens:
+
+```typescript
+import { generateNotificationToken, verifyNotificationToken } from '@/lib/notifications/tokens';
+
+// Generate token for unsubscribe link
+const token = await generateNotificationToken({
+  userId: user.id,
+  action: 'unsubscribe',
+  expiresIn: '30d'
+});
+
+const unsubscribeUrl = `${baseUrl}/notifications/unsubscribe?token=${token}`;
+
+// Verify token when user clicks link
+const payload = await verifyNotificationToken(token);
+if (payload.action === 'unsubscribe') {
+  await updateUserNotificationPreferences(payload.userId, { enabled: false });
+}
+```
+
+From `src/lib/notifications/tokens.ts`
+
+<Info>
+  Tokens use HMAC-SHA256 signatures and expire after 30 days for security.
+</Info>
+
+## Notification content
+
+Content generation creates localized, formatted messages:
+
+```typescript
+import { generateNotificationContent } from '@/lib/notifications/content';
+
+const content = await generateNotificationContent({
+  notification: notificationRecord,
+  user: userRecord,
+  locale: 'el',
+  channel: 'email' // or 'whatsapp', 'sms'
+});
+
+// Returns:
+// {
+//   title: 'Νέα συνεδρίαση: Δημοτικό Συμβούλιο',
+//   body: '<html>...</html>',  // For email
+//   // or plain text for SMS
+// }
+```
+
+From `src/lib/notifications/content.ts`
+
+## API reference
+
+<ParamField path="matchUsersToSubjects" type="async function">
+  Matches users to relevant subjects based on preferences
+  
+  <Expandable title="Parameters">
+    - `subjects`: Subject[] - Array of meeting subjects
+    - `usersWithPreferences`: UserPreference[] - Users with interests and locations
+    - `subjectImportanceOverrides`: Record&lt;string, SubjectImportance&gt; - Admin-set importance levels
+  </Expandable>
+  
+  <Expandable title="Returns">
+    ```typescript
+    Map<string, Set<SubjectMatch>>
+    // userId -> Set of { subjectId, reason }
+    ```
+  </Expandable>
+</ParamField>
+
+<ParamField path="releaseNotifications" type="async function">
+  Sends all pending notifications for given IDs
+  
+  <Expandable title="Parameters">
+    - `notificationIds`: string[] - IDs of notifications to send
+  </Expandable>
+  
+  <Expandable title="Returns">
+    ```typescript
+    {
+      success: boolean,
+      emailsSent: number,
+      messagesSent: number,
+      failed: number
+    }
+    ```
+  </Expandable>
+</ParamField>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="AI summaries" icon="sparkles" href="/features/ai-summaries">
+    Learn how summaries trigger notification creation
+  </Card>
+  
+  <Card title="Search" icon="magnifying-glass" href="/features/search">
+    Users can search topics they're interested in
+  </Card>
+  
+  <Card title="Transcription" icon="microphone" href="/features/transcription">
+    Understand the data pipeline feeding notifications
+  </Card>
+  
+  <Card title="User guide" icon="user" href="/guides/user-preferences">
+    Help users set up their notification preferences
+  </Card>
+</CardGroup>

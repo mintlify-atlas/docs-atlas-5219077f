@@ -1,0 +1,458 @@
+---
+title: Database setup and migrations
+description: Configure PostgreSQL with PostGIS, run migrations, and seed data for OpenCouncil
+---
+
+OpenCouncil uses PostgreSQL with the PostGIS extension for geospatial features. This guide covers database setup, schema migrations, and seeding.
+
+## Requirements
+
+<Warning>
+  OpenCouncil requires PostgreSQL 14+ with PostGIS 3.3.5+ for production. Development environments use these versions by default.
+</Warning>
+
+**Core requirements:**
+- PostgreSQL 14 or higher
+- PostGIS 3.3.5 or higher (3.5 works but 3.3.5 matches production)
+- Prisma CLI (included in dev environments)
+
+## Database schema
+
+OpenCouncil uses Prisma as an ORM. The schema is defined in `prisma/schema.prisma` with 30+ models:
+
+**Key models:**
+- `City` - Municipalities with PostGIS geometry
+- `CouncilMeeting` - Meetings with video/audio media
+- `Person` - Council members with voice recognition
+- `Party` - Political parties
+- `SpeakerSegment` - Speaker time intervals
+- `Utterance` & `Word` - Transcription data
+- `Subject` - Agenda items with location/topic
+- `Notification` - User notifications
+- `TaskStatus` - Async job tracking
+
+**Multi-tenant design:** Many models use composite keys `(cityId, id)` for data isolation.
+
+View the full schema:
+
+```bash
+cat prisma/schema.prisma
+```
+
+## Setting up a new database
+
+<Steps>
+  <Step title="Create database with PostGIS">
+    <CodeGroup>
+    ```sql Self-managed PostgreSQL
+    CREATE DATABASE opencouncil;
+    \c opencouncil
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    ```
+    
+    ```bash Managed services (Supabase, RDS, etc.)
+    # Most managed PostgreSQL services support PostGIS
+    # Enable via dashboard or:
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Configure connection strings">
+    Add to `.env`:
+    
+    ```bash
+    DATABASE_URL="postgresql://user:password@host:5432/opencouncil?sslmode=require"
+    DIRECT_URL="postgresql://user:password@host:5432/opencouncil?sslmode=require"
+    ```
+    
+    See [Environment setup](/deployment/environment-setup#database-connection) for details.
+  </Step>
+  
+  <Step title="Run migrations">
+    ```bash
+    npx prisma migrate deploy
+    ```
+    
+    This applies all migrations from `prisma/migrations/`.
+  </Step>
+  
+  <Step title="Seed the database (optional)">
+    ```bash
+    npx prisma db seed
+    ```
+    
+    See [Database seeding](#database-seeding) below.
+  </Step>
+</Steps>
+
+## Schema migrations
+
+OpenCouncil uses Prisma Migrate for schema versioning and deployments.
+
+### Development workflow
+
+<Warning>
+  **Always use `--create-only` when making schema changes.** This prevents accidentally applying migrations to the wrong database.
+</Warning>
+
+<Steps>
+  <Step title="Edit the schema">
+    Modify `prisma/schema.prisma`:
+    
+    ```prisma Example: Add field
+    model City {
+      id        String   @id @default(cuid())
+      name      String
+      // Add new field
+      population Int?
+      // ...
+    }
+    ```
+  </Step>
+  
+  <Step title="Create migration (do not apply)">
+    ```bash
+    npx prisma migrate dev --name add_population_to_cities --create-only
+    ```
+    
+    This generates a migration file in `prisma/migrations/` but **does not apply it**.
+  </Step>
+  
+  <Step title="Review the migration SQL">
+    ```bash
+    cat prisma/migrations/<timestamp>_add_population_to_cities/migration.sql
+    ```
+    
+    Verify the SQL is correct before applying.
+  </Step>
+  
+  <Step title="Test against local database">
+    ```bash
+    npx prisma migrate deploy
+    ```
+    
+    Apply to your local database and test the application.
+  </Step>
+  
+  <Step title="Commit and deploy">
+    ```bash
+    git add prisma/
+    git commit -m "Add population field to cities"
+    ```
+    
+    Production deployments will apply the migration automatically.
+  </Step>
+</Steps>
+
+### Production deployments
+
+Migrations are applied automatically during deployment:
+
+<CodeGroup>
+```bash Nix dev runner
+nix run .#dev  # Runs migrations on startup
+```
+
+```bash Docker
+./run.sh  # Runs migrations before starting app
+```
+
+```bash Manual deployment
+npm run db:deploy
+# or
+npx prisma migrate deploy
+```
+</CodeGroup>
+
+### Migration history
+
+OpenCouncil has 80+ migrations dating back to September 2024. View all migrations:
+
+```bash
+ls -1 prisma/migrations/
+```
+
+Example migrations:
+```
+20260207211304_add_speaker_name_to_contributions/
+20260202164839_add_diavgeia_decisions/
+20260125144744_add_discussed_in_field/
+20251026111508_add_notifications/
+20250703144238_add_equipment_and_physical_presence_to_offers/
+20250203100741_add_administrative_bodies/
+20250112125551_add_geometry_to_cities/
+```
+
+### Rollback (not recommended)
+
+Prisma Migrate does not support automatic rollbacks. To revert:
+
+1. Create a new migration that reverses the changes
+2. Test thoroughly
+3. Deploy the new migration
+
+<Warning>
+  Never manually edit applied migrations in `prisma/migrations/`. This breaks migration history.
+</Warning>
+
+## Database seeding
+
+OpenCouncil provides two seeding workflows:
+
+### Automatic seeding (development)
+
+Local development environments automatically seed the database:
+
+<CodeGroup>
+```bash Nix
+nix run .#dev  # Seeds automatically on first run
+```
+
+```bash Docker
+./run.sh  # Seeds if using local database
+```
+
+```bash Manual
+npx prisma db seed
+```
+</CodeGroup>
+
+### Seed data source
+
+The seed script (`prisma/seed.ts`):
+
+1. Checks for `prisma/seed_data.json` locally
+2. If not found, downloads from GitHub repository
+3. Creates test users with different permission levels
+4. Seeds cities, meetings, transcripts, and related data
+
+**Test users created:**
+- Super Admin (full access)
+- City Admin (city-level access)
+- Party Admin (party-level access)
+- Person Admin (person-level access)
+- Read Only (no admin permissions)
+
+In development, a floating panel allows instant user switching without email authentication.
+
+### Custom seed data
+
+Generate seed data from an existing database:
+
+```bash
+npm run generate-seed -- \
+  --source="postgresql://user:pass@host:5432/db" \
+  --pairs=chania/latest,athens/latest \
+  --output=./prisma/seed_data.json
+```
+
+**Options:**
+- `--source`: Source database URL
+- `--pairs`: Comma-separated `cityId/meetingId` pairs (use `latest` for most recent meeting)
+- `--output`: Path to save JSON file
+
+**Seed data structure:**
+```json
+{
+  "topics": [...],
+  "cities": [...],
+  "administrativeBodies": [...],
+  "parties": [...],
+  "persons": [...],
+  "meetings": [...],
+  "voiceprints": [...]
+}
+```
+
+See `docs/database-seeding.md` in the source repository for details.
+
+### Environment variables
+
+Customize seeding behavior:
+
+```bash
+# URL to download seed data from
+SEED_DATA_URL=https://custom-url/seed_data.json
+
+# Path to local seed data file
+SEED_DATA_PATH=./custom/path/seed_data.json
+
+# City ID for test users
+DEV_TEST_CITY_ID=chania
+```
+
+## Database maintenance
+
+### Reset local database
+
+<Warning>
+  This is destructive and cannot be undone. All data will be lost.
+</Warning>
+
+<CodeGroup>
+```bash Nix
+nix run .#cleanup  # Removes .data/postgres and .next
+nix run .#dev      # Creates fresh database with seed data
+```
+
+```bash Docker
+./run.sh --clean  # Removes containers and volumes
+./run.sh          # Creates fresh database
+```
+
+```bash Prisma (any environment)
+npx prisma migrate reset  # Drops DB, runs migrations, seeds
+```
+</CodeGroup>
+
+### Prisma Studio (visual database editor)
+
+Open Prisma Studio to browse and edit data:
+
+<CodeGroup>
+```bash Automatic (Nix/Docker dev mode)
+# Starts automatically with dev server
+# Access at http://localhost:5555
+```
+
+```bash Standalone
+npx prisma studio --port 5555
+```
+
+```bash Nix (custom database)
+nix run .#studio -- --db-url "postgresql://..."
+```
+</CodeGroup>
+
+### Backup and restore
+
+Backup with `pg_dump`:
+
+```bash
+# Full backup
+pg_dump "postgresql://user:pass@host:5432/db" > backup.sql
+
+# Schema only
+pg_dump --schema-only "postgresql://user:pass@host:5432/db" > schema.sql
+
+# Data only
+pg_dump --data-only "postgresql://user:pass@host:5432/db" > data.sql
+```
+
+Restore:
+
+```bash
+psql "postgresql://user:pass@host:5432/newdb" < backup.sql
+```
+
+### Database size monitoring
+
+Check database size:
+
+```sql
+SELECT 
+  pg_size_pretty(pg_database_size('opencouncil')) as db_size,
+  pg_size_pretty(pg_total_relation_size('"CouncilMeeting"')) as meetings_size,
+  pg_size_pretty(pg_total_relation_size('"Utterance"')) as utterances_size;
+```
+
+## Connection pooling
+
+For production deployments with high concurrency, use connection pooling:
+
+### PgBouncer (recommended)
+
+```bash
+# Install PgBouncer
+sudo apt-get install pgbouncer
+
+# Configure pgbouncer.ini
+[databases]
+opencouncil = host=localhost port=5432 dbname=opencouncil
+
+[pgbouncer]
+pool_mode = transaction
+max_client_conn = 1000
+default_pool_size = 20
+```
+
+Update `.env`:
+
+```bash
+# Pooled connection
+DATABASE_URL="postgresql://user:pass@localhost:6432/opencouncil"
+
+# Direct connection (for migrations)
+DIRECT_URL="postgresql://user:pass@localhost:5432/opencouncil"
+```
+
+### Managed pooling
+
+Many managed PostgreSQL services offer built-in pooling:
+
+- **Supabase**: Provides connection pooler on port 6543
+- **Neon**: Automatic connection pooling
+- **AWS RDS Proxy**: Managed connection pooling
+
+## Troubleshooting
+
+### PostGIS extension not found
+
+```sql
+CREATE EXTENSION IF NOT EXISTS postgis;
+```
+
+If this fails, install PostGIS on your server:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install postgresql-14-postgis-3
+
+# macOS (Homebrew)
+brew install postgis
+```
+
+### Migration failed: version mismatch
+
+Ensure PostGIS versions match between local and production:
+
+```sql
+SELECT PostGIS_Version();
+```
+
+OpenCouncil targets PostGIS 3.3.5 for production compatibility.
+
+### Shadow database access denied
+
+Prisma needs a "shadow database" for migrations. Grant permissions:
+
+```sql
+GRANT CREATE ON DATABASE opencouncil TO your_user;
+```
+
+Or use `DIRECT_URL` pointing to a database where you have full permissions.
+
+### Connection limit reached
+
+Check active connections:
+
+```sql
+SELECT count(*) FROM pg_stat_activity;
+```
+
+Increase `max_connections` or use connection pooling.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment setup" icon="gear" href="/deployment/environment-setup">
+    Configure database URLs and secrets
+  </Card>
+  <Card title="Docker deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="Nix deployment" icon="snowflake" href="/deployment/nix">
+    Deploy with Nix flakes
+  </Card>
+</CardGroup>

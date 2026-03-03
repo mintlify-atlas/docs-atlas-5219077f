@@ -1,0 +1,362 @@
+---
+title: Docker deployment guide
+description: Deploy OpenCouncil using Docker Compose with local or remote PostgreSQL databases
+---
+
+OpenCouncil provides a flexible Docker setup that supports both development and production deployments with local or remote databases.
+
+## Prerequisites
+
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+- At least 4GB RAM available for containers
+- `.env` file configured (see [Environment setup](/deployment/environment-setup))
+
+## Quick start
+
+<Steps>
+  <Step title="Make the run script executable">
+    ```bash
+    chmod +x run.sh
+    ```
+  </Step>
+  
+  <Step title="Copy environment file">
+    ```bash
+    cp .env.example .env
+    # Edit .env with your configuration
+    ```
+  </Step>
+  
+  <Step title="Start in development mode">
+    ```bash
+    # With local database (default)
+    ./run.sh
+    
+    # With remote database
+    ./run.sh --remote-db
+    ```
+  </Step>
+</Steps>
+
+The application will be available at `http://localhost:3000`
+
+## Development mode
+
+### Local database (recommended)
+
+Starts both the application and a PostgreSQL + PostGIS container:
+
+```bash
+./run.sh
+```
+
+This configuration:
+- ✅ Automatically runs migrations
+- ✅ Seeds the database with sample data
+- ✅ Hot-reloads code changes
+- ✅ Includes Prisma Studio on port 5555
+
+<Note>
+  The local database uses Docker volumes for persistence. Data survives container restarts but will be lost if you run `./run.sh --clean`.
+</Note>
+
+### Remote database
+
+Connects to an existing database using `DATABASE_URL` from `.env`:
+
+```bash
+./run.sh --remote-db
+```
+
+<Warning>
+  Remote database mode runs migrations automatically but **does not seed** to protect production data.
+</Warning>
+
+### Force rebuild
+
+Rebuild containers after changing dependencies:
+
+```bash
+./run.sh -- --build
+
+# With no cache
+./run.sh -- --build --no-cache
+```
+
+## Production mode
+
+<CodeGroup>
+```bash Local database
+./run.sh --prod
+```
+
+```bash Remote database
+./run.sh --prod --remote-db
+```
+</CodeGroup>
+
+Production mode:
+- Builds optimized Next.js production bundle
+- Runs with `NODE_ENV=production`
+- Disables hot-reload and development tools
+- Uses standalone output for minimal image size
+
+## Running multiple instances
+
+The `run.sh` script automatically detects port conflicts and finds available ports. This enables running multiple instances simultaneously (useful for git worktrees):
+
+```bash
+# First instance (uses ports 3000, 5555, 5432)
+cd ~/projects/opencouncil-main
+./run.sh
+
+# Second instance (automatically uses 3001, 5556, 5433)
+cd ~/projects/opencouncil-feature-branch
+./run.sh
+
+# Third instance (automatically uses 3002, 5557, 5434)
+cd ~/projects/opencouncil-another-feature
+./run.sh
+```
+
+Manually specify ports if needed:
+
+```bash
+./run.sh --app-port 3001 --prisma-port 5556 --db-port 5433
+```
+
+## Docker Compose profiles
+
+OpenCouncil uses Docker Compose profiles to control which services run:
+
+| Profile | Services | Use case |
+|---------|----------|----------|
+| `dev` | app-dev | Development with hot-reload |
+| `prod` | app | Production build |
+| `with-db` | db | Local PostgreSQL + PostGIS |
+
+### Running just the database
+
+Use the database container independently:
+
+```bash
+# Foreground
+docker compose --profile with-db up db
+
+# Background
+docker compose --profile with-db up -d db
+```
+
+Connect to it from the host:
+
+```bash
+psql "postgresql://postgres:postgres@localhost:5432/development"
+```
+
+## Running commands in containers
+
+The `exec.sh` script provides a convenient way to run commands inside containers:
+
+<CodeGroup>
+```bash Prisma commands
+# Generate Prisma client
+./exec.sh npx prisma generate
+
+# Run migrations
+./exec.sh npx prisma migrate dev
+
+# Open Prisma Studio
+./exec.sh npx prisma studio
+```
+
+```bash Database operations
+# Seed database
+./exec.sh npm run db:deploy:seed
+
+# Reset database (destructive!)
+./exec.sh npx prisma migrate reset
+```
+
+```bash TypeScript scripts
+./exec.sh npx tsx scripts/find_duplicate_subjects.ts --city chania
+./exec.sh tsx scripts/email_municipality.ts
+```
+
+```bash Build and test
+./exec.sh npm run build
+./exec.sh npm test
+```
+
+```bash Interactive shell
+./exec.sh /bin/sh
+```
+</CodeGroup>
+
+The `exec.sh` script:
+- Loads environment variables from `.env`
+- Starts the container if not running
+- Executes commands with the proper environment
+
+## Database connection modes
+
+The Docker setup handles database connections automatically based on the mode:
+
+### Local database mode (`./run.sh`)
+
+Connection strings are automatically constructed from initialization variables:
+
+```bash
+# From .env (initialization only)
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+DATABASE_NAME=development
+
+# Automatically set at runtime
+DATABASE_URL="postgresql://postgres:postgres@db:5432/development?sslmode=disable"
+DIRECT_URL="postgresql://postgres:postgres@db:5432/development?sslmode=disable"
+```
+
+### Remote database mode (`./run.sh --remote-db`)
+
+Uses connection strings directly from `.env`:
+
+```bash
+DATABASE_URL="postgresql://user:pass@host:5432/dbname?sslmode=require"
+DIRECT_URL="postgresql://user:pass@host:5432/dbname?sslmode=require"
+```
+
+<Info>
+  You can keep your `.env` configured for remote databases. The local mode automatically overrides these values.
+</Info>
+
+## Docker networks
+
+OpenCouncil uses Docker networks for service communication:
+
+### Default shared network
+
+All instances share `opencouncil-net` by default:
+
+```bash
+./run.sh  # Uses opencouncil-net
+```
+
+This allows multiple OpenCouncil instances to communicate with a single task server.
+
+### Custom networks (isolated development)
+
+Isolate instances with custom networks:
+
+```bash
+# Using flag
+./run.sh --network feature-auth
+
+# Using environment variable
+NETWORK_NAME=feature-auth ./run.sh
+
+# Or add to .env
+echo "NETWORK_NAME=feature-auth" >> .env
+./run.sh
+```
+
+Custom network names are prefixed with `opencouncil-net-` (e.g., `opencouncil-net-feature-auth`).
+
+### Connecting to the task server
+
+Configure `opencouncil-tasks` to use the same network:
+
+```yaml docker-compose.yml
+networks:
+  opencouncil-net:
+    name: opencouncil-net  # or opencouncil-net-feature-auth
+    external: true
+```
+
+Then set the connection in `.env`:
+
+```bash
+# OpenCouncil → Task server
+TASK_API_URL=http://opencouncil-tasks-app-1:3005
+
+# Task server → OpenCouncil (callbacks)
+NEXTAUTH_URL=http://opencouncil-app-dev-1:3000
+```
+
+## Cleaning up resources
+
+Remove all Docker resources for the current directory:
+
+```bash
+./run.sh --clean
+```
+
+This command:
+- Stops and removes containers
+- Removes volumes (including database data)
+- Removes networks
+- Removes configuration files
+
+<Warning>
+  **For git worktrees:** Always run `./run.sh --clean` before removing a worktree to avoid orphaned Docker resources.
+</Warning>
+
+## Troubleshooting
+
+### Port already in use
+
+The script automatically finds available ports. If you manually specify a port that's in use:
+
+```bash
+lsof -i :3000  # Find process using port 3000
+kill <PID>    # Stop the process
+```
+
+### Container won't start
+
+Check logs:
+
+```bash
+docker compose logs app
+docker compose logs db
+```
+
+Rebuild with no cache:
+
+```bash
+./run.sh -- --build --no-cache
+```
+
+### Database connection failed
+
+Verify database is running:
+
+```bash
+docker compose ps db
+```
+
+Test connection:
+
+```bash
+docker compose exec db pg_isready -U postgres
+```
+
+### Cached data after switching databases
+
+Clear Next.js cache:
+
+```bash
+rm -rf .next
+./run.sh
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Environment setup" icon="gear" href="/deployment/environment-setup">
+    Configure environment variables
+  </Card>
+  <Card title="Database setup" icon="database" href="/deployment/database">
+    Migrations and seeding
+  </Card>
+</CardGroup>

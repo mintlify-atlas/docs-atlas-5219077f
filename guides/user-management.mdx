@@ -1,0 +1,376 @@
+---
+title: User roles and permissions
+description: Understand how OpenCouncil manages users, authentication, and administrative rights across cities and parties
+---
+
+## Overview
+
+OpenCouncil implements a flexible user management system that supports both public users and administrators with varying levels of access. The system uses magic link authentication and provides fine-grained administrative rights that can be scoped to specific cities, parties, or individual people.
+
+## User types
+
+The system recognizes two primary user types:
+
+<CardGroup cols={2}>
+  <Card title="Public users" icon="users">
+    Citizens who sign up to receive notifications about council meetings based on their location and topic preferences. They can also create and view highlights.
+  </Card>
+  
+  <Card title="Administrative users" icon="user-shield">
+    Users with special permissions to manage content, view admin interfaces, and perform privileged operations. Admins are created by super admins.
+  </Card>
+</CardGroup>
+
+## Authentication system
+
+OpenCouncil uses Auth.js (NextAuth v5) with email-based magic link authentication powered by Resend.
+
+<Steps>
+  <Step title="User requests access">
+    User enters their email address on the login page
+  </Step>
+  
+  <Step title="Magic link sent">
+    System sends a magic link to the user's email via Resend
+  </Step>
+  
+  <Step title="User clicks link">
+    Clicking the link authenticates the user and creates a session
+  </Step>
+  
+  <Step title="Session established">
+    User is logged in and can access their personalized content
+  </Step>
+</Steps>
+
+<Note>
+  No passwords are used. This eliminates password management overhead and improves security.
+</Note>
+
+## User creation and onboarding
+
+### Public user creation
+
+Public users are created automatically when they:
+- Sign up for notifications for a city
+- Submit a petition
+- Create a highlight (requires login)
+
+The user receives a magic link to complete their registration.
+
+### Administrative user creation
+
+Super admins can create administrative users through the admin interface:
+
+<Steps>
+  <Step title="Create user">
+    Super admin provides email address and name
+  </Step>
+  
+  <Step title="User receives invitation">
+    System sends an invitation email with the user's name
+  </Step>
+  
+  <Step title="User signs in">
+    User can sign in normally via magic link
+  </Step>
+  
+  <Step title="Grant admin rights">
+    Super admin assigns administrative rights (see below)
+  </Step>
+</Steps>
+
+<Warning>
+  Administrative users must be explicitly created by super admins—they cannot self-register with admin privileges.
+</Warning>
+
+## Administrative rights system
+
+Administrative rights are managed through the `Administers` table, which creates granular permissions.
+
+### Permission scopes
+
+Administrative rights can be scoped to different entities:
+
+<Tabs>
+  <Tab title="City admin">
+    **Scope**: Specific city
+    
+    **Permissions**:
+    - Manage meetings for that city
+    - Create and edit subjects
+    - Manage city-specific settings
+    - View admin interfaces for the city
+    
+    **Database**: `{ userId, cityId, partyId: null, personId: null }`
+  </Tab>
+  
+  <Tab title="Party admin">
+    **Scope**: Specific political party
+    
+    **Permissions**:
+    - Manage party information
+    - Edit party member profiles
+    - Update party metadata
+    
+    **Database**: `{ userId, cityId: null, partyId, personId: null }`
+  </Tab>
+  
+  <Tab title="Person admin">
+    **Scope**: Specific council member
+    
+    **Permissions**:
+    - Edit person's profile
+    - Manage person's roles
+    - Update biographical information
+    
+    **Database**: `{ userId, cityId: null, partyId: null, personId }`
+  </Tab>
+  
+  <Tab title="Super admin">
+    **Scope**: Entire platform
+    
+    **Permissions**:
+    - All administrative functions
+    - Create other admin users
+    - Manage system-wide settings
+    - Access all cities and data
+    
+    **Database**: User record with `isSuperAdmin: true`
+  </Tab>
+</Tabs>
+
+### Authorization helpers
+
+OpenCouncil provides two key authorization methods in `src/lib/auth.ts`:
+
+<CodeGroup>
+```typescript Conditional UI
+// Returns boolean for conditional rendering
+const editable = await isUserAuthorizedToEdit({ 
+  cityId: data.meeting.cityId 
+});
+
+if (editable) {
+  return <EditButton />;
+}
+```
+
+```typescript API Protection
+// Throws error if unauthorized (for API routes)
+await withUserAuthorizedToEdit({ 
+  partyId: params.partyId 
+});
+
+// Continue with protected operation...
+```
+</CodeGroup>
+
+<Warning>
+  **CRITICAL**: Both methods are async and must be awaited. Failing to await will bypass authorization checks and create security vulnerabilities.
+</Warning>
+
+## User data model
+
+The `User` model tracks essential information:
+
+```prisma prisma/schema.prisma
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String   @unique
+  emailVerified DateTime?
+  phone         String?
+  onboarded     Boolean  @default(false)
+  allowContact  Boolean  @default(false)
+  isSuperAdmin  Boolean  @default(false)
+  
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  administers   Administers[]
+  notificationPreferences NotificationPreference[]
+  highlights    Highlight[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+### Key fields
+
+<AccordionGroup>
+  <Accordion title="onboarded">
+    Tracks whether the user has completed initial setup (e.g., set notification preferences)
+  </Accordion>
+  
+  <Accordion title="allowContact">
+    Indicates whether the user consents to being contacted by administrators
+  </Accordion>
+  
+  <Accordion title="isSuperAdmin">
+    Boolean flag granting platform-wide administrative privileges
+  </Accordion>
+  
+  <Accordion title="phone">
+    Optional phone number for WhatsApp/SMS notifications
+  </Accordion>
+</AccordionGroup>
+
+## Administers table
+
+The `Administers` model creates many-to-many relationships between users and administrative scopes:
+
+```prisma prisma/schema.prisma
+model Administers {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  cityId    String?
+  partyId   String?
+  personId  String?
+  
+  city      City?    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  party     Party?   @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  person    Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cityId, partyId, personId])
+}
+```
+
+<Note>
+  The unique constraint ensures a user can only have one administrative relationship per unique combination of city, party, and person.
+</Note>
+
+## Admin UI implementation
+
+The admin interface should be implemented at `/admin` using shadcn components with good UX.
+
+### Required functionality
+
+<Steps>
+  <Step title="User list">
+    Display all users with:
+    - Email, name, onboarded status
+    - Super admin badge
+    - Administrative scopes (city, party, person)
+  </Step>
+  
+  <Step title="Create user">
+    Form to create new users:
+    - Email input (required)
+    - Name input (required)
+    - Send invitation button
+  </Step>
+  
+  <Step title="Manage admin rights">
+    Interface to add/remove `Administers` records:
+    - Select user
+    - Choose scope type (city/party/person)
+    - Select specific entity
+    - Save relationship
+  </Step>
+  
+  <Step title="Invite users">
+    Send invitation emails to non-onboarded users:
+    - Button to send invite
+    - Includes user's name in email
+    - Uses existing email templates
+  </Step>
+</Steps>
+
+### UI components
+
+<CardGroup cols={2}>
+  <Card title="User table" icon="table">
+    - Sortable columns
+    - Search/filter functionality
+    - Status badges (onboarded, super admin)
+    - Action buttons (edit, invite, delete)
+  </Card>
+  
+  <Card title="Rights editor" icon="shield-halved">
+    - Dropdown to select user
+    - Radio buttons for scope type
+    - Searchable select for entity
+    - Add/remove buttons with confirmation
+  </Card>
+</CardGroup>
+
+## User profile management
+
+Users can manage their own information through `/profile`:
+
+<Accordion title="Personal information">
+  - Name
+  - Email (read-only)
+  - Phone number
+  - Contact preferences
+</Accordion>
+
+<Accordion title="Notification preferences">
+  - List of cities with active preferences
+  - Edit button → redirects to `/{cityId}/notifications`
+  - Unsubscribe button → deletes preference
+  - Add notifications for another city
+</Accordion>
+
+<Accordion title="Administrative roles" badge="Admin users only">
+  - View assigned administrative scopes
+  - Read-only display (managed by super admins)
+</Accordion>
+
+## Security best practices
+
+<AccordionGroup>
+  <Accordion title="Always await authorization">
+    ```typescript
+    // ✅ Correct
+    const authorized = await isUserAuthorizedToEdit({ cityId });
+    
+    // ❌ Wrong - bypasses check!
+    const authorized = isUserAuthorizedToEdit({ cityId });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use appropriate method">
+    - **UI components**: Use `isUserAuthorizedToEdit()` (returns boolean)
+    - **API routes**: Use `withUserAuthorizedToEdit()` (throws error)
+  </Accordion>
+  
+  <Accordion title="Server-side checks only">
+    Never rely on client-side authorization. Always verify permissions on the server for sensitive operations.
+  </Accordion>
+  
+  <Accordion title="Principle of least privilege">
+    Grant users the minimum permissions needed. Use scoped admin rights instead of super admin when possible.
+  </Accordion>
+</AccordionGroup>
+
+## Integration with other systems
+
+### Notifications
+
+Users can sign up for notifications, which creates a `NotificationPreference` record. See the [notifications system guide](/guides/notifications-system) for details.
+
+### Highlights
+
+Users can create highlights if:
+- They are logged in, AND
+- Either:
+  - The city has `highlightCreationPermission: EVERYONE`, OR
+  - The user is an admin for that city
+
+### Petitions
+
+Anonymous users can submit petitions, which creates a `User` record if the email doesn't exist. The petition system uses the same magic link flow.
+
+## File reference
+
+<Card title="Key implementation files">
+  - `src/auth.ts` - Auth.js configuration
+  - `src/lib/auth.ts` - Authorization helper functions
+  - `src/lib/db/notifications.ts` - User preference management
+  - `src/app/[locale]/(other)/profile/page.tsx` - User profile page
+  - `prisma/schema.prisma` - User and Administers models (lines 639-741)
+</Card>

@@ -1,0 +1,283 @@
+---
+title: Chat
+description: AI-powered chat for exploring council meeting data
+---
+
+## Chat with AI assistant
+
+<CodeGroup>
+```bash Request
+POST /api/chat
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "id": "1",
+      "role": "user",
+      "content": "Τι είπαν οι σύμβουλοι για τα ηλεκτρικά πατίνια;"
+    }
+  ],
+  "cityId": "athens"
+}
+```
+
+```text Response (Server-Sent Events)
+data: {"id":"1","role":"assistant","content":"Οι σύμβουλοι συζήτησαν","done":false}
+
+data: {"id":"1","role":"assistant","content":"Οι σύμβουλοι συζήτησαν εκτενώς για τη ρύθμιση","done":false}
+
+data: {"id":"1","role":"assistant","content":"Οι σύμβουλοι συζήτησαν εκτενώς για τη ρύθμιση των ηλεκτρικών πατινιών [1]...","done":false}
+
+data: {"id":"2","role":"assistant","content":"Οι σύμβουλοι συζήτησαν εκτενώς για τη ρύθμιση των ηλεκτρικών πατινιών [1]. Ο Γιώργος Παπαδάκης πρότεινε...","subjectReferences":[{"id":"subject-1","name":"Κανονισμός χρήσης ηλεκτρικών πατινιών","councilMeeting":{"id":"meeting-2024-03-15","city":{"id":"athens"}}}],"done":true}
+```
+</CodeGroup>
+
+Chat with an AI assistant specialized in municipal governance and council proceedings. The assistant has access to meeting transcripts, subjects, and related data to provide informed answers.
+
+### Request body
+
+<ParamField body="messages" type="array" required>
+  Array of chat messages in the conversation
+  <Expandable title="Message properties">
+    <ParamField body="id" type="string" required>
+      Unique message identifier
+    </ParamField>
+    <ParamField body="role" type="string" required>
+      Message role: `user` or `assistant`
+    </ParamField>
+    <ParamField body="content" type="string" required>
+      Message content text
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="cityId" type="string">
+  Optional city ID to scope the search. When provided, the assistant will include city-specific context (council members, parties, administrative bodies) in its responses.
+</ParamField>
+
+<ParamField body="useMockData" type="boolean" default="false">
+  Development only: Use mock data instead of real search results
+</ParamField>
+
+### Response
+
+Returns a Server-Sent Events (SSE) stream of chat responses. Each event is a JSON object:
+
+<ResponseField name="id" type="string">
+  Response message identifier
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  Always `assistant` for AI responses
+</ResponseField>
+
+<ResponseField name="content" type="string">
+  The assistant's response text (accumulated content in streaming mode)
+</ResponseField>
+
+<ResponseField name="done" type="boolean">
+  Whether the response is complete
+</ResponseField>
+
+<ResponseField name="subjectReferences" type="array">
+  Array of subjects referenced in the response (only present when `done: true`)
+  <Expandable title="Subject reference properties">
+    <ResponseField name="id" type="string">
+      Subject identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Subject name
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Subject description
+    </ResponseField>
+    <ResponseField name="councilMeeting" type="object">
+      Meeting information with city data
+    </ResponseField>
+    <ResponseField name="topic" type="object | null">
+      Associated topic
+    </ResponseField>
+    <ResponseField name="score" type="number">
+      Search relevance score
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="error" type="boolean">
+  Whether an error occurred (only present on error)
+</ResponseField>
+
+### Error handling
+
+If an error occurs during processing, the stream will return a final message with:
+
+```json
+{
+  "id": "error-123",
+  "role": "assistant",
+  "content": "Συγγνώμη, παρουσιάστηκε σφάλμα κατά την επεξεργασία του αιτήματός σας. Παρακαλώ δοκιμάστε ξανά.",
+  "subjectReferences": [],
+  "error": true,
+  "done": true
+}
+```
+
+## How it works
+
+The chat endpoint uses a sophisticated pipeline to provide accurate, context-aware responses:
+
+### 1. Search phase
+
+When you send a message, the system performs a hybrid search (text + semantic) to find relevant subjects from council meetings. The search:
+
+- Uses your last message as the query
+- Filters by cityId if provided
+- Returns the top 5 most relevant subjects
+- Includes detailed speaker segments when needed
+
+### 2. Context enhancement
+
+The system enhances the AI prompt with:
+
+- **City political context**: Current council members, parties, and administrative bodies
+- **Relevant subjects**: Meeting subjects ordered by relevance with:
+  - Subject name, description, and topic
+  - Speaker segments (marked with 🔹 for key segments)
+  - Additional context from AI-generated summaries
+
+### 3. AI response generation
+
+The AI assistant (Claude 4.5 Sonnet) generates a response:
+
+- Uses the enhanced context to provide accurate information
+- References subjects using `[X]` notation (e.g., `[1]`, `[2]`)
+- Streams the response for a smooth user experience
+- Returns subject references for linking to source material
+
+## AI configuration
+
+The chat endpoint uses the following AI configuration:
+
+- **Model**: `claude-sonnet-4.5-20250929`
+- **Max tokens**: 1000
+- **Temperature**: 0 (deterministic responses)
+- **Context**: Up to 10 recent messages
+
+## Search configuration
+
+- **Results per query**: 5 subjects
+- **Semantic search**: Enabled
+- **Rank window**: 100 results
+- **Rank constant**: 60
+- **Detailed results**: Enabled (includes full speaker segments)
+
+## Best practices
+
+### Ask specific questions
+
+```json
+{
+  "messages": [{
+    "id": "1",
+    "role": "user",
+    "content": "Ποια ήταν η απόφαση για τα ηλεκτρικά πατίνια στο Δήμο Αθηναίων;"
+  }],
+  "cityId": "athens"
+}
+```
+
+### Use city context
+
+Including a `cityId` provides better context:
+
+```json
+{
+  "messages": [{
+    "id": "1",
+    "role": "user",
+    "content": "Ποιος είναι ο δήμαρχος;"
+  }],
+  "cityId": "athens"
+}
+```
+
+### Multi-turn conversations
+
+Maintain conversation history for context:
+
+```json
+{
+  "messages": [
+    {
+      "id": "1",
+      "role": "user",
+      "content": "Τι είπαν για τα πάρκα;"
+    },
+    {
+      "id": "2",
+      "role": "assistant",
+      "content": "Συζητήθηκε η αναβάθμιση των δημοτικών πάρκων [1]..."
+    },
+    {
+      "id": "3",
+      "role": "user",
+      "content": "Ποια κόμματα ψήφισαν υπέρ;"
+    }
+  ],
+  "cityId": "athens"
+}
+```
+
+## Use cases
+
+### Question answering
+
+"Τι αποφάσισε το συμβούλιο για το νέο πάρκο;"
+
+### Council member queries
+
+"Τι είπε ο Γιώργος Παπαδάκης για το θέμα του περιβάλλοντος;"
+
+### Topic exploration
+
+"Ποια θέματα συζητήθηκαν για τις μεταφορές τον τελευταίο χρόνο;"
+
+### Procedural questions
+
+"Πώς λειτουργεί η ψηφοφορία στο δημοτικό συμβούλιο;"
+
+### Policy analysis
+
+"Ποιες είναι οι προτάσεις για την κυκλοφορία στο κέντρο;"
+
+## Response format
+
+### Subject references
+
+The assistant uses `[X]` notation to reference subjects:
+
+```
+Σύμφωνα με τη συζήτηση στο θέμα [1], προτάθηκε η αναβάθμιση των πάρκων.
+Επιπλέον, στο θέμα [2] συζητήθηκε η χρηματοδότηση του έργου.
+```
+
+The numbers correspond to subjects in the `subjectReferences` array.
+
+### Structured information
+
+The assistant formats information clearly:
+
+```
+Κόμματα που ψήφισαν υπέρ:
+- Νέα Δημοκρατία
+- ΣΥΡΙΖΑ
+- ΠΑΣΟΚ
+
+Κόμματα που ψήφισαν κατά:
+- ΚΚΕ
+```
+
+### Professional tone
+
+Responses maintain a professional yet accessible tone, suitable for civic engagement.

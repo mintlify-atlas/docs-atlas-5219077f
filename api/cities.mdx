@@ -1,0 +1,216 @@
+---
+title: Cities
+description: Access city information and manage municipalities
+---
+
+## Get cities
+
+<CodeGroup>
+```bash Request
+GET /api/cities?includeUnlisted=false
+```
+
+```json Response
+[
+  {
+    "id": "athens",
+    "name": "Αθήνα",
+    "name_en": "Athens",
+    "name_municipality": "Δήμος Αθηναίων",
+    "name_municipality_en": "Municipality of Athens",
+    "logoImage": "https://example.com/logos/athens.png",
+    "supportsNotifications": true,
+    "status": "listed",
+    "officialSupport": true,
+    "authorityType": "municipality",
+    "timezone": "Europe/Athens",
+    "wikipediaId": "Athens",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-15T12:00:00.000Z",
+    "_count": {
+      "persons": 45,
+      "parties": 8,
+      "councilMeetings": 120
+    }
+  }
+]
+```
+</CodeGroup>
+
+Returns cities with full data including counts. Respects user authorization when `includeUnlisted=true`.
+
+### Query parameters
+
+<ParamField query="includeUnlisted" type="boolean" default="false">
+  When true, includes unlisted cities the user can administer. Requires authentication.
+</ParamField>
+
+### Response
+
+Returns an array of `CityWithCounts` objects.
+
+<ResponseField name="id" type="string">
+  Unique city identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  City name in local language
+</ResponseField>
+
+<ResponseField name="name_en" type="string">
+  City name in English
+</ResponseField>
+
+<ResponseField name="name_municipality" type="string">
+  Municipality name in local language
+</ResponseField>
+
+<ResponseField name="name_municipality_en" type="string">
+  Municipality name in English
+</ResponseField>
+
+<ResponseField name="logoImage" type="string | null">
+  URL to city logo image
+</ResponseField>
+
+<ResponseField name="supportsNotifications" type="boolean">
+  Whether the city supports notification features
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  City status: `pending`, `unlisted`, or `listed`
+</ResponseField>
+
+<ResponseField name="officialSupport" type="boolean">
+  Whether the city has official support
+</ResponseField>
+
+<ResponseField name="authorityType" type="string">
+  Type of authority: `municipality` or `region`
+</ResponseField>
+
+<ResponseField name="timezone" type="string">
+  IANA timezone identifier (e.g., "Europe/Athens")
+</ResponseField>
+
+<ResponseField name="wikipediaId" type="string | null">
+  Wikipedia page identifier
+</ResponseField>
+
+<ResponseField name="_count" type="object">
+  Aggregated counts for this city
+  <Expandable title="properties">
+    <ResponseField name="persons" type="integer">
+      Number of people in this city
+    </ResponseField>
+    <ResponseField name="parties" type="integer">
+      Number of parties in this city
+    </ResponseField>
+    <ResponseField name="councilMeetings" type="integer">
+      Number of released meetings in this city
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+<ResponseField name="400" type="ValidationError">
+  Invalid query parameters
+</ResponseField>
+
+<ResponseField name="401" type="Error">
+  Not authorized to view unlisted cities
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Failed to fetch cities
+</ResponseField>
+
+---
+
+## Get all cities (minimal)
+
+<CodeGroup>
+```bash Request
+GET /api/cities/all
+```
+
+```json Response
+[
+  {
+    "id": "athens",
+    "name": "Αθήνα",
+    "name_en": "Athens",
+    "name_municipality": "Δήμος Αθηναίων",
+    "name_municipality_en": "Municipality of Athens",
+    "logoImage": "https://example.com/logos/athens.png",
+    "supportsNotifications": true,
+    "status": "listed",
+    "officialSupport": true,
+    "authorityType": "municipality"
+  }
+]
+```
+</CodeGroup>
+
+Returns all non-pending cities in minimal format. No authentication required. Ideal for dropdowns and selectors.
+
+### Response
+
+Returns an array of `CityMinimal` objects with basic city information without counts or timestamps.
+
+---
+
+## Get a specific city
+
+<CodeGroup>
+```bash Request
+GET /api/cities/{cityId}
+```
+
+```json Response
+{
+  "id": "athens",
+  "name": "Αθήνα",
+  "name_en": "Athens",
+  "name_municipality": "Δήμος Αθηναίων",
+  "name_municipality_en": "Municipality of Athens",
+  "logoImage": "https://example.com/logos/athens.png",
+  "supportsNotifications": true,
+  "status": "listed",
+  "officialSupport": true,
+  "authorityType": "municipality",
+  "timezone": "Europe/Athens",
+  "wikipediaId": "Athens",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-15T12:00:00.000Z",
+  "_count": {
+    "persons": 45,
+    "parties": 8,
+    "councilMeetings": 120
+  }
+}
+```
+</CodeGroup>
+
+Returns detailed information for a specific city by ID.
+
+### Path parameters
+
+<ParamField path="cityId" type="string" required>
+  Unique city identifier
+</ParamField>
+
+### Response
+
+Returns a `CityWithCounts` object with complete city information.
+
+### Error responses
+
+<ResponseField name="404" type="Error">
+  City not found
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Failed to fetch city
+</ResponseField>

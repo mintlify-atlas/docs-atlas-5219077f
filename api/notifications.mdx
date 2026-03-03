@@ -1,0 +1,178 @@
+---
+title: Notifications
+description: Access user notification data
+---
+
+## Get notification
+
+<CodeGroup>
+```bash Request
+GET /api/notifications/{id}
+```
+
+```json Response
+{
+  "id": "notification-123",
+  "userId": "user-456",
+  "subject": {
+    "id": "subject-1",
+    "name": "Αναβάθμιση πάρκων",
+    "description": "Πρόταση για αναβάθμιση των δημοτικών πάρκων",
+    "councilMeeting": {
+      "id": "meeting-2024-03-15",
+      "name": "Τακτική Συνεδρίαση",
+      "dateTime": "2024-03-15T18:00:00.000Z",
+      "city": {
+        "id": "athens",
+        "name": "Αθήνα",
+        "name_en": "Athens"
+      }
+    },
+    "topic": {
+      "id": "environment",
+      "name": "Περιβάλλον",
+      "name_en": "Environment",
+      "colorHex": "#4CAF50"
+    }
+  },
+  "channel": "email",
+  "status": "sent",
+  "sentAt": "2024-03-16T10:00:00.000Z",
+  "readAt": null,
+  "createdAt": "2024-03-16T09:55:00.000Z"
+}
+```
+</CodeGroup>
+
+Returns detailed information about a specific notification, including the associated subject and meeting data.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  Unique notification identifier
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Unique notification identifier
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User who received the notification
+</ResponseField>
+
+<ResponseField name="subject" type="object">
+  The council subject this notification is about
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Subject identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Subject name
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Subject description
+    </ResponseField>
+    <ResponseField name="councilMeeting" type="object">
+      Meeting information
+      <Expandable title="properties">
+        <ResponseField name="id" type="string">
+          Meeting identifier
+        </ResponseField>
+        <ResponseField name="name" type="string">
+          Meeting name
+        </ResponseField>
+        <ResponseField name="dateTime" type="string">
+          Meeting date and time (ISO 8601)
+        </ResponseField>
+        <ResponseField name="city" type="object">
+          City information with id, name, and name_en
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="topic" type="object | null">
+      Associated topic with id, name, name_en, and colorHex
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="channel" type="string">
+  Notification delivery channel: `email`, `whatsapp`, or `sms`
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Notification status: `pending`, `sent`, `failed`, or `cancelled`
+</ResponseField>
+
+<ResponseField name="sentAt" type="string | null">
+  Timestamp when notification was sent (ISO 8601)
+</ResponseField>
+
+<ResponseField name="readAt" type="string | null">
+  Timestamp when notification was read (ISO 8601)
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  Timestamp when notification was created (ISO 8601)
+</ResponseField>
+
+### Error responses
+
+<ResponseField name="404" type="Error">
+  Notification not found
+  ```json
+  {
+    "error": "Notification not found"
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Internal server error
+  ```json
+  {
+    "error": "Internal server error"
+  }
+  ```
+</ResponseField>
+
+## Notification channels
+
+OpenCouncil supports multiple notification delivery channels:
+
+### Email
+
+Notifications sent via email using the Resend service. Includes rich formatting and links to the relevant subject.
+
+### WhatsApp
+
+Notifications sent via WhatsApp using the Bird API. Supports text messages with subject information and meeting links.
+
+### SMS
+
+Notifications sent via SMS using the Bird API. Concise text notifications for users who prefer traditional messaging.
+
+## Notification matching
+
+Notifications are sent based on user preferences:
+
+- **Topic preferences**: Users receive notifications for subjects matching their selected topics
+- **Location preferences**: Users can subscribe to subjects in specific geographic areas
+- **Person preferences**: Users can follow specific council members
+- **Party preferences**: Users can follow specific political parties
+
+## Notification workflow
+
+1. **Creation**: When a new meeting is released, notifications are generated for matching user preferences
+2. **Approval**: Notifications go through an approval queue before being sent
+3. **Delivery**: Approved notifications are sent via the user's preferred channel(s)
+4. **Tracking**: Delivery status and read receipts are tracked for analytics
+
+## Rate limiting
+
+The notification system includes rate limiting to prevent overwhelming users and external services:
+
+- 500ms delay between consecutive sends
+- Batch processing for multiple recipients
+- Retry logic with exponential backoff for failed deliveries

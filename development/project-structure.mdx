@@ -1,0 +1,417 @@
+---
+title: Project structure
+description: Understand how the OpenCouncil codebase is organized and where to find different types of code
+---
+
+## Directory overview
+
+OpenCouncil follows a standard Next.js 14 App Router structure with clear separation of concerns.
+
+```
+src/
+├── app/              # Next.js App Router
+│   ├── [locale]/    # Locale-parameterized routes
+│   └── api/         # API routes (cities, search, chat, admin, etc.)
+├── components/       # React components
+│   ├── ui/          # Base UI components (Radix + Tailwind)
+│   └── ...          # Domain-specific components (meetings, chat, map, etc.)
+├── lib/             # Business logic & services
+│   ├── db/          # Data access layer (Prisma queries)
+│   ├── tasks/       # Task management for async jobs
+│   ├── search/      # Elasticsearch integration
+│   ├── notifications/ # Multi-channel notification system
+│   ├── ai.ts        # Anthropic Claude integration
+│   ├── s3.ts        # DigitalOcean Spaces
+│   └── ...          # Other services (Discord, Google Calendar, etc.)
+├── contexts/        # React Context for shared state
+├── hooks/           # Custom React hooks
+├── types/           # TypeScript type definitions
+└── auth.ts          # Authentication setup
+```
+
+## App directory
+
+The `app/` directory contains all routes using Next.js App Router conventions.
+
+### Locale-based routing
+
+OpenCouncil uses `next-intl` for internationalization. All routes are nested under `[locale]/` to support multiple languages:
+
+```
+app/
+├── [locale]/
+│   ├── (city)/[cityId]/           # City-specific routes
+│   │   ├── (meetings)/[meetingId]/  # Meeting pages
+│   │   ├── (other)/                 # Non-meeting city pages
+│   │   └── consultation/            # Consultation system
+│   ├── (fullscreen)/                # Full-screen layouts (maps)
+│   └── (interfaces)/                # Special interfaces (chat)
+```
+
+### API routes
+
+API endpoints are organized by domain:
+
+<CodeGroup>
+```typescript app/api/cities/[cityId]/route.ts
+// City CRUD operations
+import { getCity, editCity } from '@/lib/db/cities';
+
+export async function GET(request: Request, { params }: { params: { cityId: string } }) {
+  const city = await getCity(params.cityId);
+  return Response.json(city);
+}
+```
+
+```typescript app/api/search/route.ts
+// Elasticsearch full-text search
+import { search } from '@/lib/search';
+
+export async function POST(request: Request) {
+  const { query, filters } = await request.json();
+  const results = await search(query, filters);
+  return Response.json(results);
+}
+```
+</CodeGroup>
+
+## Components directory
+
+Components are organized by domain with a special `ui/` directory for base components.
+
+### Base UI components
+
+Located in `components/ui/`, these are built with Radix UI primitives and Tailwind CSS:
+
+```
+components/ui/
+├── button.tsx
+├── dialog.tsx
+├── dropdown-menu.tsx
+├── form.tsx
+├── input.tsx
+├── select.tsx
+└── ...
+```
+
+<Note>
+  These components use `class-variance-authority` for component variants and follow the [Radix UI design system](https://www.radix-ui.com/).
+</Note>
+
+### Domain components
+
+Domain-specific components are organized by feature:
+
+```
+components/
+├── meetings/         # Meeting-related components
+├── chat/             # AI chat interface
+├── map/              # Mapbox interactive maps
+├── notifications/    # Notification UI
+├── search/           # Search interface
+├── subjects/         # Meeting subjects
+└── transcript/       # Transcript viewer
+```
+
+### Dev-only components
+
+Components in `components/dev/` must **never** be imported statically in production code:
+
+<CodeGroup>
+```typescript Good: Conditional import
+const QuickLogin = process.env.NODE_ENV === 'development'
+    ? require("@/components/dev/QuickLogin").default
+    : null;
+```
+
+```typescript Bad: Static import
+import QuickLogin from "@/components/dev/QuickLogin"; // ❌ Don't do this
+```
+</CodeGroup>
+
+<Warning>
+  The condition must use `process.env.NODE_ENV === 'development'` directly (not via a variable) so the bundler can eliminate the dead branch at build time.
+</Warning>
+
+## Lib directory
+
+The `lib/` directory contains all business logic, utilities, and external service integrations.
+
+### Data access layer
+
+All database queries are centralized in `lib/db/`. See the [Data Access](/development/data-access) guide for detailed patterns.
+
+```
+lib/db/
+├── prisma.ts              # Prisma client singleton
+├── cities.ts              # City queries
+├── meetings.ts            # Meeting queries
+├── people.ts              # Person queries
+├── parties.ts             # Party queries
+├── notifications.ts       # Notification logic
+├── types/                 # Shared Prisma types
+│   ├── index.ts
+│   ├── roles.ts
+│   └── city.ts
+└── utils/                 # DB utility functions
+```
+
+### Service integrations
+
+Each external service has its own file:
+
+<CardGroup cols={2}>
+  <Card title="AI" icon="robot">
+    `lib/ai.ts` - Anthropic Claude for summaries and chat
+  </Card>
+  
+  <Card title="Search" icon="magnifying-glass">
+    `lib/search/` - Elasticsearch full-text search
+  </Card>
+  
+  <Card title="Storage" icon="box">
+    `lib/s3.ts` - DigitalOcean Spaces for media
+  </Card>
+  
+  <Card title="Email" icon="envelope">
+    `lib/email/` - Resend for authentication and notifications
+  </Card>
+  
+  <Card title="Discord" icon="message">
+    `lib/discord.ts` - Admin alerts and notifications
+  </Card>
+  
+  <Card title="Calendar" icon="calendar">
+    `lib/google-calendar.ts` - Event scheduling
+  </Card>
+</CardGroup>
+
+### Utilities
+
+Utility functions are organized by purpose:
+
+```
+lib/
+├── utils/              # General utilities
+│   ├── administrativeBodies.ts
+│   ├── filterURL.ts
+│   └── qr.ts
+├── formatters/         # Formatting functions
+│   ├── time.ts
+│   └── markdown.ts
+├── sorting/            # Sorting functions
+│   └── people.ts
+└── utils.ts            # Core utilities
+```
+
+<Tip>
+  Use time formatting utilities from `lib/formatters/time.ts` (e.g., `formatTimestamp`, `formatDate`, `formatDuration`) instead of implementing your own.
+</Tip>
+
+## Technology stack
+
+OpenCouncil is built with modern, type-safe technologies:
+
+<AccordionGroup>
+  <Accordion title="Framework: Next.js 14">
+    - **App Router** for file-based routing
+    - **Server Components** by default
+    - **Server Actions** with `"use server"` directive
+    - **TypeScript** in strict mode
+  </Accordion>
+  
+  <Accordion title="Database: PostgreSQL + Prisma">
+    - **PostgreSQL 14+** with PostGIS extension for geographic data
+    - **Prisma ORM** for type-safe queries
+    - Composite keys for multi-tenant isolation: `(cityId, id)`
+  </Accordion>
+  
+  <Accordion title="Authentication: Auth.js (NextAuth v5)">
+    - **Resend** email provider for passwordless authentication
+    - **Prisma Adapter** for session storage
+    - Role-based access control (superadmin, city admin)
+  </Accordion>
+  
+  <Accordion title="Styling: Tailwind CSS + Radix UI">
+    - **Tailwind CSS** utility-first approach
+    - **Radix UI** primitives for accessible components
+    - **Framer Motion** for animations
+    - **class-variance-authority** for component variants
+  </Accordion>
+  
+  <Accordion title="Forms & Validation">
+    - **React Hook Form** for form handling
+    - **Zod** schemas for validation
+    - **@hookform/resolvers** for integration
+  </Accordion>
+  
+  <Accordion title="Testing">
+    - **Jest** with jsdom environment
+    - **React Testing Library** for component tests
+    - **Testcontainers** for integration tests with PostgreSQL
+  </Accordion>
+</AccordionGroup>
+
+## Import conventions
+
+### Path aliases
+
+Use the `@/` alias for imports from the `src/` directory:
+
+<CodeGroup>
+```typescript Good: Using @/ alias
+import { getCity } from '@/lib/db/cities';
+import { Button } from '@/components/ui/button';
+import { auth } from '@/auth';
+```
+
+```typescript Bad: Relative imports
+import { getCity } from '../../lib/db/cities'; // ❌ Don't do this
+import { Button } from '../components/ui/button'; // ❌ Don't do this
+```
+</CodeGroup>
+
+### Import organization
+
+Group imports logically:
+
+```typescript
+// 1. React/Next.js imports
+import { Suspense } from 'react';
+import { notFound } from 'next/navigation';
+
+// 2. Third-party imports
+import { Prisma } from '@prisma/client';
+import { formatDate } from 'date-fns';
+
+// 3. Local imports (with @/ alias)
+import { getCity } from '@/lib/db/cities';
+import { Button } from '@/components/ui/button';
+import { auth } from '@/auth';
+```
+
+<Warning>
+  Never use dynamic imports unless explicitly required. All imports should be at the top of the file.
+</Warning>
+
+## Code organization principles
+
+### Don't Repeat Yourself (DRY)
+
+<Steps>
+  <Step title="Check for duplicated logic">
+    If two components have similar code blocks (>10 lines), extract to a shared utility.
+  </Step>
+  
+  <Step title="Common extraction targets">
+    - Filtering/sorting logic → Extract to `lib/utils/` or `lib/sorting/`
+    - URL parameter handling → Extract to utilities
+    - Data transformation logic → Extract to utilities
+    - Complex calculations → Extract to helper functions
+  </Step>
+  
+  <Step title="Search before implementing">
+    Before adding new logic:
+    1. Search for similar code patterns in the codebase
+    2. Check if logic exists in multiple places
+    3. Extract duplicates to shared utilities
+  </Step>
+</Steps>
+
+### Component organization
+
+<AccordionGroup>
+  <Accordion title="Functional components only">
+    - Use functional components with hooks
+    - PascalCase for component names
+    - camelCase for functions/variables
+  </Accordion>
+  
+  <Accordion title="Server vs Client Components">
+    - **Server Components** by default (no `"use client"`)
+    - **Client Components** only when needed (`"use client"` directive)
+    - Use Server Actions with `"use server"` directive
+  </Accordion>
+  
+  <Accordion title="Type safety">
+    - Never cast to `any` or use `any` as a type
+    - Use interfaces/types for data structures
+    - Proper error typing in catch blocks
+  </Accordion>
+</AccordionGroup>
+
+## Development environment
+
+### Nix shell
+
+OpenCouncil uses [Nix](https://nixos.org/) to manage development dependencies. All shell commands must be run inside the Nix development shell:
+
+```bash
+# Prefix commands with nix develop --command
+nix develop --command npm run build
+nix develop --command npx tsc --noEmit
+
+# Or open an interactive shell first
+nix develop
+npm run build  # Now you can run commands directly
+```
+
+### Build commands
+
+<CodeGroup>
+```bash Development
+npm run dev           # Start dev server with Turbo
+npm run dev:fast      # Dev server with increased memory
+npm run build         # Production build
+npm run start         # Start production server
+```
+
+```bash Testing
+npm test              # Run all tests
+npm test -- path/to/file.test.ts  # Run specific test
+npm run test:watch    # Run tests in watch mode
+npm run test:integration  # Integration tests with testcontainers
+```
+
+```bash Database (Prisma)
+npm run prisma:generate        # Generate Prisma Client
+npm run prisma:migrate         # Run migrations
+npm run prisma:studio          # Open Prisma Studio
+npm run prisma:migrate:reset   # Reset database
+npx prisma db seed             # Seed with sample data
+```
+
+```bash Linting
+npm run lint          # Run ESLint
+```
+</CodeGroup>
+
+<Warning>
+  When making schema changes, always use `--create-only` to generate the migration file without applying it:
+  
+  ```bash
+  npx prisma migrate dev --name <migration_name> --create-only
+  ```
+  
+  This allows testing the migration against a local database first before applying to production.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Learn the contribution workflow
+  </Card>
+  
+  <Card title="Authentication" icon="lock" href="/development/authentication">
+    Understand authentication patterns
+  </Card>
+  
+  <Card title="Data access" icon="database" href="/development/data-access">
+    Explore data access patterns
+  </Card>
+  
+  <Card title="Architecture" icon="building" href="/architecture/overview">
+    Review the architecture overview
+  </Card>
+</CardGroup>

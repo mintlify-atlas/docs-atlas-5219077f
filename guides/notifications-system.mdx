@@ -1,0 +1,434 @@
+---
+title: Multi-channel notification system
+description: Learn how OpenCouncil notifies citizens about council meetings through email, WhatsApp, and SMS based on location and topic preferences
+---
+
+## Overview
+
+OpenCouncil's notification system automatically sends targeted updates to citizens about council meeting subjects relevant to their location and topic preferences. Notifications are delivered via multiple channels—email, WhatsApp, and SMS—at two key moments: before meetings (agenda preview) and after meetings (summary).
+
+## System architecture
+
+The notification system consists of several interconnected data models:
+
+<Steps>
+  <Step title="Notification">
+    Core record linking a user to a specific meeting and type (before/after)
+    
+    **Relations**: user, city, meeting, deliveries, subjects
+  </Step>
+  
+  <Step title="NotificationSubject">
+    Links notifications to relevant meeting subjects with a reason (proximity, topic, or general interest)
+    
+    **Unique constraint**: One entry per (notification, subject) pair
+  </Step>
+  
+  <Step title="NotificationDelivery">
+    Represents an upcoming or completed delivery via email or message
+    
+    **Fields**: title, body, email, phone, status (pending/sent/failed), messageSentVia (whatsapp/sms)
+  </Step>
+  
+  <Step title="AdministrativeBody">
+    Controls notification behavior with `notificationBehavior` field:
+    
+    - `NOTIFICATIONS_DISABLED`: No notifications created
+    - `NOTIFICATIONS_AUTO`: Notifications auto-sent immediately
+    - `NOTIFICATIONS_APPROVAL`: Notifications require admin approval
+  </Step>
+</Steps>
+
+## Notification creation triggers
+
+Notifications are created automatically when specific tasks complete, or manually by administrators.
+
+<Tabs>
+  <Tab title="Before meeting">
+    Created when `processAgenda` task completes successfully
+    
+    **Content**: Preview of meeting subjects based on processed agenda
+    
+    **Behavior**: Controlled by administrative body's `notificationBehavior` setting
+  </Tab>
+  
+  <Tab title="After meeting">
+    Created when `summarize` task completes successfully
+    
+    **Content**: Summary of meeting results and decisions
+    
+    **Behavior**: Controlled by administrative body's `notificationBehavior` setting
+  </Tab>
+  
+  <Tab title="Manual creation">
+    Admins can manually create notifications from meeting admin page:
+    
+    1. Select notification type (before/after meeting)
+    2. Configure importance for each subject:
+       - **Topic importance**: doNotNotify / normal / high
+       - **Proximity importance**: none / near (250m) / wide (1000m)
+    3. Toggle "create pending" or "send immediately"
+  </Tab>
+</Tabs>
+
+## Subject-to-user matching
+
+The notification system uses sophisticated matching logic to determine which users should be notified about which subjects.
+
+### Subject importance levels
+
+Each subject has two importance dimensions:
+
+<CardGroup cols={2}>
+  <Card title="Topic importance" icon="tag">
+    - **doNotNotify**: No topic-based notifications
+    - **normal**: Notify users interested in the topic
+    - **high**: Notify all users (general interest)
+  </Card>
+  
+  <Card title="Proximity importance" icon="location-dot">
+    - **none**: No location-based notifications
+    - **near**: Notify users within 250m
+    - **wide**: Notify users within 1000m
+  </Card>
+</CardGroup>
+
+### Matching rules
+
+A user receives a notification for subject S if **any** of these conditions are met:
+
+<Steps>
+  <Step title="General interest">
+    `S.topicImportance` is **high** → Notify everyone
+  </Step>
+  
+  <Step title="Topic match">
+    `S.topicImportance` is **normal** AND user has the subject's topic in their interests
+  </Step>
+  
+  <Step title="Near proximity">
+    `S.proximityImportance` is **near** AND user has a location within 250m of subject location
+  </Step>
+  
+  <Step title="Wide proximity">
+    `S.proximityImportance` is **wide** AND user has a location within 1000m of subject location
+  </Step>
+</Steps>
+
+<Note>
+  If no subjects match any user through these rules, no notifications are created at all.
+</Note>
+
+### Statistics
+
+The creation process produces two key metrics:
+
+- **Notifications created**: Number of users notified (one notification per user)
+- **NotificationSubjects created**: Total subjects across all users
+
+## Notification deliveries
+
+NotificationDeliveries represent the actual sending of notifications through specific channels.
+
+### Delivery lifecycle
+
+<Steps>
+  <Step title="Creation">
+    All deliveries are initially created with `pending` status:
+    
+    - **Email delivery**: Always created for every notification
+    - **Message delivery**: Created additionally if user has a phone number
+  </Step>
+  
+  <Step title="Sending">
+    Deliveries are sent either through:
+    
+    - Admin approval via the notification approval UI, OR
+    - Immediate sending (for "send immediately" or `NOTIFICATIONS_AUTO` bodies)
+  </Step>
+</Steps>
+
+### Email delivery
+
+<Accordion title="Email content">
+  **Title format**: `OpenCouncil {municipalityName}: {adminBody} - {date}`
+  
+  **Body content**: Formatted HTML email containing:
+  - Titles, topics, and descriptions of all notification subjects
+  - Navigation buttons (top and bottom) linking to the notification view page
+  
+  **Future enhancement**: LLM-generated titles incorporating keywords from important subjects
+</Accordion>
+
+<Accordion title="Sending process">
+  - Sent using Resend service
+  - Uses title and body created during delivery creation
+  - Status updated to `sent` on success
+</Accordion>
+
+### Message delivery (WhatsApp/SMS)
+
+<Card title="Message delivery flow" icon="mobile">
+  **Service**: All message delivery handled through Bird API
+  
+  **WhatsApp-first approach**:
+  1. Attempts WhatsApp delivery using pre-approved templates
+  2. Falls back to SMS via Bird if WhatsApp fails
+  
+  **Status tracking**: `messageSentVia` field tracks actual delivery method (whatsapp/sms)
+</Card>
+
+### WhatsApp template system
+
+WhatsApp requires pre-approved templates for users who haven't messaged in 24 hours (always assumed).
+
+<Tabs>
+  <Tab title="Before meeting template">
+    Used for `beforeMeeting` notifications
+    
+    **Parameters**:
+    - `date`: Meeting date
+    - `cityName`: City name (e.g., "Athens")
+    - `subjectsSummary`: Comma-separated subject titles
+    - `adminBody`: Administrative body name
+    - `notificationId`: For redirect button to `/notifications/{id}`
+  </Tab>
+  
+  <Tab title="After meeting template">
+    Used for `afterMeeting` notifications
+    
+    **Parameters**: Same as before meeting template
+  </Tab>
+</Tabs>
+
+<Note>
+  Both templates take exactly the same parameters for consistency.
+</Note>
+
+### SMS fallback
+
+If WhatsApp delivery fails, the system uses SMS with the body content created during delivery creation.
+
+## Administrative body notification flow
+
+Each administrative body has a `notificationBehavior` setting that controls the notification lifecycle:
+
+<Tabs>
+  <Tab title="NOTIFICATIONS_DISABLED">
+    **Behavior**: Skip notification creation entirely
+    
+    **Use case**: Bodies that don't want any automated notifications
+  </Tab>
+  
+  <Tab title="NOTIFICATIONS_AUTO">
+    **Behavior**: Create notifications and immediately send them
+    
+    **Use case**: Bodies with established notification processes that trust automatic sending
+  </Tab>
+  
+  <Tab title="NOTIFICATIONS_APPROVAL" badge="Default">
+    **Behavior**: Create notifications with deliveries in `pending` status
+    
+    **Use case**: Bodies that want to review notifications before sending (recommended for new setups)
+  </Tab>
+</Tabs>
+
+## Core implementation
+
+The notification system is implemented across several key modules:
+
+### Matching engine
+
+```typescript src/lib/notifications/matching.ts
+export async function matchUsersToSubjects(
+  subjects: Subject[],
+  usersWithPreferences: UserPreference[],
+  subjectImportanceOverrides?: Record<string, SubjectImportance>
+): Promise<Map<string, Set<SubjectMatch>>>
+```
+
+Matches users to subjects based on importance levels and preferences, using PostGIS for proximity calculations.
+
+### Notification creation
+
+```typescript src/lib/db/notifications.ts
+export async function createNotificationsForMeeting(
+  cityId: string,
+  meetingId: string,
+  type: NotificationType,
+  subjectImportanceOverrides?: Record<string, ImportanceSettings>
+): Promise<{
+  notificationsCreated: number;
+  subjectsTotal: number;
+  notificationIds: string[];
+}>
+```
+
+Core function that:
+1. Checks administrative body notification behavior
+2. Gets all users with preferences for the city
+3. Applies importance rules and matches subjects to users
+4. Creates Notification records with NotificationSubjects
+5. Creates NotificationDeliveries (email + message if phone exists)
+6. Optionally sends immediately if `NOTIFICATIONS_AUTO`
+
+### Proximity calculations
+
+```typescript src/lib/db/notifications.ts
+export async function calculateProximityMatches(
+  userLocationIds: string[],
+  subjectLocationId: string,
+  distanceMeters: number
+): Promise<boolean>
+```
+
+Uses PostGIS `ST_DWithin` to calculate geographic distances, with special handling for inverted coordinates outside Greece bounds.
+
+### Delivery system
+
+```typescript src/lib/notifications/deliver.ts
+export async function releaseNotifications(
+  notificationIds: string[]
+): Promise<{
+  success: boolean;
+  emailsSent: number;
+  messagesSent: number;
+  failed: number;
+}>
+```
+
+Processes pending deliveries:
+- Sends emails via Resend
+- Sends messages via Bird (WhatsApp → SMS fallback)
+- Updates delivery status and `messageSentVia`
+- Implements 500ms delays to avoid rate limiting
+
+## Content generation
+
+Notification content is generated at creation time:
+
+<CodeGroup>
+```typescript Email
+export async function generateEmailContent(
+  notification: NotificationData
+): Promise<{ title: string; body: string }>
+```
+
+```typescript SMS
+export async function generateSmsContent(
+  notification: NotificationData
+): Promise<{ body: string }>
+```
+</CodeGroup>
+
+Email content includes formatted HTML with subject cards, topics, and navigation buttons. SMS content is plain text for fallback use.
+
+## Automatic triggers
+
+Notifications are automatically triggered from task handlers:
+
+<Tabs>
+  <Tab title="Process agenda handler">
+    ```typescript src/lib/tasks/processAgenda.ts
+    // After successful subject creation
+    const stats = await createNotificationsForMeeting(
+      task.councilMeeting.cityId,
+      task.councilMeeting.id,
+      'beforeMeeting'
+    );
+    ```
+  </Tab>
+  
+  <Tab title="Summarize handler">
+    ```typescript src/lib/tasks/summarize.ts
+    // After successful summary creation
+    const stats = await createNotificationsForMeeting(
+      councilMeeting.cityId,
+      councilMeeting.id,
+      'afterMeeting'
+    );
+    ```
+  </Tab>
+</Tabs>
+
+## Admin notification management
+
+Administrators manage notifications through `/admin/notifications` with:
+
+<CardGroup cols={2}>
+  <Card title="Administrative body settings" icon="building">
+    Configure `notificationBehavior` per body with impact summaries
+  </Card>
+  
+  <Card title="Notification filters" icon="filter">
+    Filter by status, city, administrative body, date range
+  </Card>
+  
+  <Card title="Grouped notification list" icon="list">
+    Hierarchical view: City → Admin Body → Meeting → Type (before/after)
+  </Card>
+  
+  <Card title="Bulk actions" icon="bolt">
+    Release all, release selected, view failed deliveries, convert to auto
+  </Card>
+</CardGroup>
+
+## User preference management
+
+Users manage their notification preferences through a simple profile integration:
+
+<Steps>
+  <Step title="Profile section">
+    `NotificationPreferencesSection` component shows active cities with preferences
+  </Step>
+  
+  <Step title="Per-city actions">
+    - **Edit button**: Redirects to existing `/{cityId}/notifications` UI
+    - **Unsubscribe button**: Deletes `NotificationPreference` record
+  </Step>
+  
+  <Step title="Existing infrastructure">
+    Reuses existing onboarding flow for preference editing:
+    - Location map interface
+    - Topic selection
+    - `saveNotificationPreferences()` function
+  </Step>
+</Steps>
+
+## Security and authorization
+
+- Only super admins can access `/admin/notifications`
+- City admins can create notifications for their city's meetings
+- Delivery content is sanitized before sending
+- Unsubscribe links include secure tokens
+
+## Performance considerations
+
+<AccordionGroup>
+  <Accordion title="Rate limiting">
+    500ms delays between delivery attempts prevent rate limit issues with email and messaging services.
+  </Accordion>
+  
+  <Accordion title="Chunked processing">
+    Bulk operations process notifications in chunks to prevent timeouts on large datasets.
+  </Accordion>
+  
+  <Accordion title="Database indexing">
+    Strategic indexes on `status`, `createdAt`, and composite keys optimize common query patterns.
+  </Accordion>
+  
+  <Accordion title="PostGIS queries">
+    Proximity calculations use PostGIS geography type for accurate distance measurements on Earth's surface.
+  </Accordion>
+</AccordionGroup>
+
+## File reference
+
+<Card title="Key implementation files">
+  - `src/lib/db/notifications.ts` - Core notification creation and management
+  - `src/lib/notifications/matching.ts` - Subject-to-user matching logic
+  - `src/lib/notifications/deliver.ts` - Multi-channel delivery system
+  - `src/lib/notifications/content.ts` - Email and SMS content generation
+  - `src/lib/notifications/bird.ts` - Bird API integration (WhatsApp/SMS)
+  - `prisma/schema.prisma` - Notification data models (lines 920-1013)
+</Card>

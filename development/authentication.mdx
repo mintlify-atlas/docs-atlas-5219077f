@@ -1,0 +1,474 @@
+---
+title: Authentication patterns
+description: Learn how to implement authentication and authorization in OpenCouncil with Auth.js (NextAuth v5)
+---
+
+## Overview
+
+OpenCouncil uses **Auth.js (NextAuth v5)** with passwordless email authentication via Resend. The authentication system supports role-based access control with superadmins and city-level administrators.
+
+<Note>
+  All authentication code is located in `src/auth.ts`, `src/auth.config.ts`, and `src/lib/auth.ts`.
+</Note>
+
+## Authentication setup
+
+The authentication system is configured in two files:
+
+### Core configuration
+
+`src/auth.ts` - Main NextAuth setup with Prisma adapter:
+
+```typescript src/auth.ts
+import NextAuth, { DefaultSession } from "next-auth"
+import { PrismaAdapter } from "@auth/prisma-adapter"
+import prisma from "@/lib/db/prisma"
+import authConfig from "@/auth.config"
+
+// Extend the default session type
+declare module "next-auth" {
+    interface Session {
+        user: {
+            isSuperAdmin?: boolean
+            phone?: string | null
+        } & DefaultSession["user"]
+    }
+
+    interface User {
+        isSuperAdmin?: boolean
+        name?: string | null
+        phone?: string | null
+    }
+}
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+    adapter: PrismaAdapter(prisma),
+    callbacks: {
+        session({ session, token, user }) {
+            return {
+                ...session,
+                user: {
+                    ...session.user,
+                    isSuperAdmin: user.isSuperAdmin,
+                    name: user.name,
+                    phone: user.phone
+                }
+            }
+        }
+    },
+    ...authConfig,
+})
+```
+
+### Provider configuration
+
+`src/auth.config.ts` - Resend email provider setup:
+
+```typescript src/auth.config.ts
+import Resend from "next-auth/providers/resend"
+import type { NextAuthConfig } from "next-auth"
+import { AuthEmail } from "./lib/email/templates/AuthEmail"
+import { renderReactEmailToHtml } from "./lib/email/render"
+import { env } from "./env.mjs"
+
+export default {
+    trustHost: true,
+    providers: [Resend({
+        from: 'OpenCouncil <auth@opencouncil.gr>',
+        apiKey: env.RESEND_API_KEY,
+        sendVerificationRequest: async (params) => {
+            const { identifier: to, url } = params
+            const html = await renderReactEmailToHtml(AuthEmail({ url }))
+
+            const res = await fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${provider.apiKey}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    from: provider.from,
+                    to,
+                    subject: `Συνδεθείτε στο OpenCouncil`,
+                    html,
+                }),
+            })
+
+            if (!res.ok)
+                throw new Error("Resend error: " + JSON.stringify(await res.json()))
+        }
+    })],
+} satisfies NextAuthConfig
+```
+
+<Tip>
+  In development, the config supports port-specific session cookies to allow multiple instances on different ports to have independent sessions.
+</Tip>
+
+## Authorization patterns
+
+OpenCouncil implements a hierarchical authorization system where users can administer cities, parties, or individual people. All authorization logic is centralized in `src/lib/auth.ts`.
+
+### Getting the current user
+
+Use `getCurrentUser()` to fetch the authenticated user with their administration rights:
+
+```typescript
+import { getCurrentUser } from '@/lib/auth';
+
+export async function MyServerComponent() {
+  const user = await getCurrentUser();
+  
+  if (!user) {
+    return <div>Please sign in</div>;
+  }
+  
+  console.log('User administers:', user.administers);
+  // user.administers contains: { city, party, person } relationships
+  
+  return <div>Welcome, {user.name}</div>;
+}
+```
+
+### Authorization methods
+
+There are two main methods for checking authorization:
+
+<CardGroup cols={2}>
+  <Card title="isUserAuthorizedToEdit" icon="circle-check">
+    Returns boolean - use for conditional UI
+  </Card>
+  
+  <Card title="withUserAuthorizedToEdit" icon="shield-check">
+    Throws if not authorized - use for API routes
+  </Card>
+</CardGroup>
+
+### Conditional UI authorization
+
+Use `isUserAuthorizedToEdit()` to show/hide UI elements based on permissions:
+
+```typescript Server Component Example
+import { isUserAuthorizedToEdit } from '@/lib/auth';
+import { getCity } from '@/lib/db/cities';
+
+export async function CityPage({ params }: { params: { cityId: string } }) {
+  const city = await getCity(params.cityId);
+  const canEdit = await isUserAuthorizedToEdit({ cityId: params.cityId });
+  
+  return (
+    <div>
+      <h1>{city.name}</h1>
+      {canEdit && (
+        <button>Edit City</button>
+      )}
+    </div>
+  );
+}
+```
+
+<Warning>
+  **CRITICAL**: Both `isUserAuthorizedToEdit()` and `withUserAuthorizedToEdit()` are async and must be awaited to prevent auth bypass bugs.
+</Warning>
+
+### API route authorization
+
+Use `withUserAuthorizedToEdit()` in API routes to enforce authorization. It throws an error if the user is not authorized:
+
+```typescript app/api/cities/[cityId]/route.ts
+import { withUserAuthorizedToEdit } from '@/lib/auth';
+import { editCity } from '@/lib/db/cities';
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: { cityId: string } }
+) {
+  // Throws "Not authorized" error if user cannot edit this city
+  await withUserAuthorizedToEdit({ cityId: params.cityId });
+  
+  const data = await request.json();
+  const updatedCity = await editCity(params.cityId, data);
+  
+  return Response.json(updatedCity);
+}
+```
+
+### Authorization parameters
+
+You can check authorization for different entity types:
+
+<CodeGroup>
+```typescript City authorization
+await isUserAuthorizedToEdit({ cityId: "city-123" });
+```
+
+```typescript Party authorization
+await isUserAuthorizedToEdit({ partyId: "party-456" });
+```
+
+```typescript Person authorization
+await isUserAuthorizedToEdit({ personId: "person-789" });
+```
+
+```typescript Meeting authorization
+// Requires both cityId and councilMeetingId
+await isUserAuthorizedToEdit({ 
+  cityId: "city-123",
+  councilMeetingId: "meeting-abc" 
+});
+```
+</CodeGroup>
+
+<Note>
+  Only one parameter should be provided at a time, except for meeting authorization which requires both `cityId` and `councilMeetingId`.
+</Note>
+
+## Authorization hierarchy
+
+The authorization system follows these rules:
+
+<Steps>
+  <Step title="Superadmins">
+    Users with `isSuperAdmin: true` can edit everything in the system.
+  </Step>
+  
+  <Step title="City administrators">
+    Users who administer a city can edit:
+    - The city itself
+    - All meetings in that city
+    - All parties in that city
+    - All people in that city
+  </Step>
+  
+  <Step title="Party administrators">
+    Users who administer a party can only edit that specific party.
+  </Step>
+  
+  <Step title="Person administrators">
+    Users who administer a person can only edit that specific person.
+  </Step>
+</Steps>
+
+### Example authorization logic
+
+Here's how the authorization check works internally:
+
+```typescript src/lib/auth.ts
+async function checkUserAuthorization({
+    cityId,
+    partyId,
+    personId,
+    councilMeetingId
+}) {
+    const user = await getCurrentUser();
+    if (!user) return false;
+
+    // Superadmins can edit everything
+    if (user.isSuperAdmin) return true;
+
+    // Check direct administration rights
+    const hasDirectAccess = user.administers.some(a =>
+        (cityId && a.cityId === cityId) ||
+        (partyId && a.partyId === partyId) ||
+        (personId && a.personId === personId)
+    );
+
+    if (hasDirectAccess) return true;
+
+    // Check hierarchical rights (city admins can edit parties/people)
+    if (partyId || personId) {
+        const entity = partyId 
+            ? await prisma.party.findUnique({ where: { id: partyId } })
+            : await prisma.person.findUnique({ where: { id: personId } });
+
+        if (entity?.cityId) {
+            return user.administers.some(a => a.cityId === entity.cityId);
+        }
+    }
+
+    return false;
+}
+```
+
+## Session management
+
+### Getting session in Server Components
+
+```typescript
+import { auth } from '@/auth';
+
+export async function MyServerComponent() {
+  const session = await auth();
+  
+  if (!session?.user) {
+    return <div>Not signed in</div>;
+  }
+  
+  return (
+    <div>
+      <p>Email: {session.user.email}</p>
+      <p>Superadmin: {session.user.isSuperAdmin ? 'Yes' : 'No'}</p>
+    </div>
+  );
+}
+```
+
+### Getting session in Client Components
+
+For Client Components, use the `useSession` hook from next-auth:
+
+```typescript "use client"
+import { useSession } from "next-auth/react";
+
+export function ClientComponent() {
+  const { data: session, status } = useSession();
+  
+  if (status === "loading") {
+    return <div>Loading...</div>;
+  }
+  
+  if (!session) {
+    return <div>Not signed in</div>;
+  }
+  
+  return <div>Signed in as {session.user.email}</div>;
+}
+```
+
+## User creation and management
+
+### Get or create user
+
+The `getOrCreateUserFromRequest()` function handles user creation automatically:
+
+```typescript
+import { getOrCreateUserFromRequest } from '@/lib/auth';
+
+export async function POST(request: Request) {
+  const { email, name, phone } = await request.json();
+  
+  // Creates user if doesn't exist, updates phone if provided
+  const user = await getOrCreateUserFromRequest(email, name, phone);
+  
+  if (!user) {
+    return Response.json({ error: 'No email provided' }, { status: 400 });
+  }
+  
+  return Response.json({ user });
+}
+```
+
+## Environment variables
+
+The authentication system requires these environment variables:
+
+```bash .env
+# NextAuth configuration
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your-secret-here
+
+# Resend email provider
+RESEND_API_KEY=re_your_resend_api_key
+
+# Optional: Redirect test emails in development
+DEV_EMAIL_OVERRIDE=your-dev-email@example.com
+```
+
+<Tip>
+  Generate a secure `NEXTAUTH_SECRET` with:
+  ```bash
+  openssl rand -base64 32
+  ```
+</Tip>
+
+## Testing authentication
+
+### Test users in development
+
+The database seed includes test users with different roles:
+
+- Superadmin: `superadmin@example.com`
+- City admin: `admin-{cityId}@example.com`
+- Party admin: `party-{partyId}@example.com`
+
+<Note>
+  In development, you can use `DEV_EMAIL_OVERRIDE` to redirect all test user emails to a single inbox for easier testing.
+</Note>
+
+## Common patterns
+
+### Protecting an entire page
+
+```typescript
+import { auth } from '@/auth';
+import { redirect } from 'next/navigation';
+
+export default async function AdminPage() {
+  const session = await auth();
+  
+  if (!session?.user) {
+    redirect('/api/auth/signin');
+  }
+  
+  if (!session.user.isSuperAdmin) {
+    return <div>Access denied</div>;
+  }
+  
+  return <div>Admin dashboard</div>;
+}
+```
+
+### Conditional editing in forms
+
+```typescript
+import { isUserAuthorizedToEdit } from '@/lib/auth';
+import { getCity } from '@/lib/db/cities';
+
+export async function CityEditForm({ cityId }: { cityId: string }) {
+  const city = await getCity(cityId);
+  const canEdit = await isUserAuthorizedToEdit({ cityId });
+  
+  return (
+    <form>
+      <input 
+        type="text" 
+        defaultValue={city.name}
+        disabled={!canEdit}
+      />
+      {canEdit && <button type="submit">Save</button>}
+    </form>
+  );
+}
+```
+
+### Server Action authorization
+
+```typescript "use server"
+import { withUserAuthorizedToEdit } from '@/lib/auth';
+import { editCity } from '@/lib/db/cities';
+
+export async function updateCity(cityId: string, data: any) {
+  await withUserAuthorizedToEdit({ cityId });
+  return await editCity(cityId, data);
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Data access" icon="database" href="/development/data-access">
+    Learn how to query data with Prisma
+  </Card>
+  
+  <Card title="Project structure" icon="folder-tree" href="/development/project-structure">
+    Understand the codebase organization
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api/overview">
+    Explore the API endpoints
+  </Card>
+  
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Learn the contribution workflow
+  </Card>
+</CardGroup>

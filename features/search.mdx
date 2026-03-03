@@ -1,0 +1,460 @@
+---
+title: Full-text search
+description: Search across all council meetings with natural language queries, filters, and semantic understanding
+---
+
+OpenCouncil provides powerful full-text search across all council meeting transcripts, agenda items, and speaker contributions. The search system uses Elasticsearch with semantic understanding to find relevant content even when exact keywords don't match.
+
+## Search capabilities
+
+<CardGroup cols={2}>
+  <Card title="Natural language" icon="comments">
+    Search using natural language queries in Greek. The system understands context and extracts filters automatically.
+  </Card>
+  
+  <Card title="Smart filters" icon="filter">
+    Filter by city, speaker, party, topic, date range, and geographic location with automatic extraction from queries.
+  </Card>
+  
+  <Card title="Semantic search" icon="brain">
+    Find conceptually similar content even without exact keyword matches using AI-powered semantic understanding.
+  </Card>
+  
+  <Card title="Geographic search" icon="location-dot">
+    Search for subjects near specific locations with configurable distance radius.
+  </Card>
+</CardGroup>
+
+## How search works
+
+The search system uses Elasticsearch with RRF (Reciprocal Rank Fusion) to combine multiple search strategies:
+
+<Steps>
+  <Step title="Query processing">
+    Natural language queries are analyzed to extract filters like city names, person names, date ranges, and locations.
+  </Step>
+  
+  <Step title="Multi-strategy search">
+    The system runs multiple search retrievers in parallel:
+    - **Keyword search** on subject names, descriptions, and transcripts
+    - **Semantic search** using AI embeddings for conceptual matching
+    - **Geographic search** for location-based queries
+  </Step>
+  
+  <Step title="Result ranking">
+    RRF combines results from all strategies, balancing keyword relevance with semantic similarity.
+  </Step>
+  
+  <Step title="Data enrichment">
+    Results are enriched with meeting details, speaker information, party affiliations, and location coordinates.
+  </Step>
+</Steps>
+
+## Search query structure
+
+The search API accepts comprehensive query parameters:
+
+<CodeGroup>
+```typescript Basic search
+import { search } from '@/lib/search';
+
+const results = await search({
+  query: 'ποδηλατόδρομος',
+  config: {
+    size: 10,
+    from: 0
+  }
+});
+```
+
+```typescript With filters
+const results = await search({
+  query: 'κυκλοφοριακό πρόβλημα',
+  cityIds: ['city-123'],
+  personIds: ['person-456'],
+  topicIds: ['topic-789'],
+  dateRange: {
+    start: '2024-01-01',
+    end: '2024-12-31'
+  },
+  config: {
+    size: 20,
+    enableSemanticSearch: true
+  }
+});
+```
+
+```typescript Geographic search
+const results = await search({
+  query: 'πάρκο',
+  locations: [
+    {
+      point: { lat: 37.9838, lon: 23.7275 },
+      radius: 2 // kilometers
+    }
+  ],
+  config: {
+    detailed: true // Include full transcript text
+  }
+});
+```
+</CodeGroup>
+
+## Automatic filter extraction
+
+The system automatically extracts filters from natural language queries:
+
+<Tabs>
+  <Tab title="City extraction">
+    Queries mentioning city names are automatically filtered:
+    
+    <Info>
+      Query: **"Τι συζητήθηκε στην Αθήνα για τα πάρκα;"**
+      
+      Extracted: `cityIds: ["athens-id"]`
+    </Info>
+    
+    The system normalizes city names with diacritics and Greek characters.
+  </Tab>
+  
+  <Tab title="Date extraction">
+    Date ranges and relative dates are parsed:
+    
+    <Info>
+      Query: **"συνεδριάσεις από 1 Ιανουαρίου 2024"**
+      
+      Extracted: `dateRange: { start: "2024-01-01", end: ... }`
+    </Info>
+    
+    Supports: specific dates, month names, relative terms ("last month", "this year").
+  </Tab>
+  
+  <Tab title="Location extraction">
+    Place names are geocoded to coordinates:
+    
+    <Info>
+      Query: **"κοντά στην πλατεία Συντάγματος"**
+      
+      Extracted: `locations: [{ point: { lat: 37.975, lon: 23.734 }, radius: 1 }]`
+    </Info>
+    
+    Uses Google Geocoding API with configurable default radius.
+  </Tab>
+</Tabs>
+
+From `src/lib/search/filters.ts`
+
+## Search ranking
+
+Results are ranked using field boosting to prioritize important content:
+
+```typescript
+{
+  multi_match: {
+    query: searchQuery,
+    fields: [
+      'name^4',           // Highest boost - subject titles
+      'description^3',    // High boost - detailed descriptions
+      'location_text^3'   // High boost when location is mentioned
+    ],
+    type: 'best_fields',
+    operator: 'or'
+  }
+}
+```
+
+<Note>
+  **Nested queries** for speaker segments and contributions use a boost of `2` to balance transcript content with subject metadata.
+</Note>
+
+### RRF parameters
+
+Rank fusion is controlled by:
+
+- `rank_window_size`: 100 (default) - Number of top results to consider from each retriever
+- `rank_constant`: 60 (default) - Higher values favor top-ranked results
+
+<CodeGroup>
+```typescript Custom RRF
+const results = await search({
+  query: 'ανακύκλωση',
+  config: {
+    rankWindowSize: 150,  // Consider more results
+    rankConstant: 40      // More balanced ranking
+  }
+});
+```
+</CodeGroup>
+
+From `src/lib/search/query.ts:240-242`
+
+## Semantic search
+
+Enable AI-powered semantic search for conceptual matching:
+
+<Accordion title="How semantic search works">
+  When enabled, the system adds a semantic retriever that searches using AI embeddings:
+  
+  ```typescript
+  {
+    semantic: {
+      query: searchQuery,
+      field: 'name.semantic',
+      boost: 2.0  // Subject names weighted higher
+    }
+  },
+  {
+    semantic: {
+      query: searchQuery,
+      field: 'description.semantic',
+      boost: 1.5  // Descriptions weighted medium
+    }
+  }
+  ```
+  
+  This finds results that are conceptually similar even if they use different words. For example, searching for "κυκλοφοριακή συμφόρηση" (traffic congestion) might also find subjects about "κίνηση" (traffic flow) or "μποτιλιάρισμα" (traffic jams).
+</Accordion>
+
+<Warning>
+  Semantic search requires Elasticsearch with text embedding models configured. Ensure your Elasticsearch instance has the appropriate inference endpoint set up.
+</Warning>
+
+## Search result types
+
+The search API returns different result types based on the `detailed` configuration:
+
+<Tabs>
+  <Tab title="Light results (default)">
+    Lightweight results for list views:
+    
+    ```typescript
+    interface SearchResultLight {
+      id: string;
+      name: string;
+      description: string;
+      score: number;
+      councilMeeting: { /* meeting details */ };
+      location: { /* location with coordinates */ };
+      matchedSpeakerSegmentIds: string[];
+      // ... other subject fields
+    }
+    ```
+    
+    Fast and efficient for displaying search results in lists.
+  </Tab>
+  
+  <Tab title="Detailed results">
+    Full results with transcript text for detail views:
+    
+    ```typescript
+    interface SearchResultDetailed extends SearchResultLight {
+      speakerSegments: {
+        id: string;
+        startTimestamp: number;
+        endTimestamp: number;
+        person: Person | null;
+        text: string;        // Full transcript text
+        summary: { text: string } | null;
+      }[];
+      context: string | null;
+    }
+    ```
+    
+    Include full transcript text when you need to display content previews.
+    
+    <Note>
+      Only speaker segments with at least 100 characters and an identified person are included in detailed results.
+    </Note>
+  </Tab>
+</Tabs>
+
+From `src/lib/search/types.ts` and `src/lib/search/index.ts:242-266`
+
+## Retry logic
+
+The search system includes automatic retry with exponential backoff:
+
+```typescript
+export async function executeElasticsearchWithRetry<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  maxRetries = 3
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt < maxRetries) {
+        const delayMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  throw lastError!;
+}
+```
+
+From `src/lib/search/retry.ts`
+
+<Info>
+  Failed searches are automatically retried up to 3 times with exponential backoff (2s, 4s, 8s delays).
+</Info>
+
+## Configuration
+
+Set up search in your environment:
+
+<CodeGroup>
+```bash .env
+# Elasticsearch connection
+ELASTICSEARCH_URL=http://localhost:9200
+ELASTICSEARCH_API_KEY=your_elasticsearch_api_key
+ELASTICSEARCH_INDEX=opencouncil-subjects
+
+# Google Geocoding for location search
+GOOGLE_API_KEY=your_google_api_key
+```
+
+```typescript env.mjs
+import { createEnv } from "@t3-oss/env-nextjs";
+import { z } from "zod";
+
+export const env = createEnv({
+  server: {
+    ELASTICSEARCH_URL: z.string().url(),
+    ELASTICSEARCH_API_KEY: z.string().min(1),
+    ELASTICSEARCH_INDEX: z.string().default('opencouncil-subjects'),
+    GOOGLE_API_KEY: z.string().min(1),
+  }
+});
+```
+</CodeGroup>
+
+## Search analytics
+
+The system logs essential search analytics:
+
+```typescript
+logEssential('Search Session Started', {
+  query: request.query,
+  filters: { cityIds, personIds, partyIds, topicIds, dateRange, hasLocations }
+});
+
+logEssential('Search Session Completed', {
+  query: request.query,
+  results: {
+    totalHits,
+    resultCount,
+    took: `${response.took}ms`,
+    topScore
+  }
+});
+```
+
+From `src/lib/search/index.ts:42-94`
+
+<Note>
+  Search logs use `[Search Analytics]` prefix and are always visible, unlike verbose debug logs.
+</Note>
+
+## Performance tips
+
+<AccordionGroup>
+  <Accordion title="Use pagination">
+    Always paginate results to avoid loading too much data:
+    
+    ```typescript
+    const results = await search({
+      query: searchTerm,
+      config: {
+        size: 20,  // Results per page
+        from: page * 20  // Offset for pagination
+      }
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Filter early">
+    Apply filters to reduce the search space before full-text search:
+    
+    ```typescript
+    // Good: Narrow down first
+    await search({
+      query: 'budget',
+      cityIds: ['city-123'],
+      dateRange: { start: '2024-01-01', end: '2024-12-31' }
+    });
+    
+    // Less efficient: Search everything
+    await search({ query: 'budget' });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use light results">
+    Only request detailed results when you need full transcript text:
+    
+    ```typescript
+    // For list views
+    await search({ query, config: { detailed: false } });
+    
+    // Only for detail pages
+    await search({ query, config: { detailed: true } });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API reference
+
+<ParamField path="search" type="async function" required>
+  Main search function from `src/lib/search/index.ts`
+  
+  <Expandable title="Parameters">
+    <ParamField path="request" type="SearchRequest" required>
+      - `query`: string - The search query
+      - `cityIds`: string[] - Filter by cities
+      - `personIds`: string[] - Filter by speakers
+      - `partyIds`: string[] - Filter by parties
+      - `topicIds`: string[] - Filter by topics
+      - `dateRange`: Date range filter with start and end timestamps
+      - `locations`: LocationQuery[] - Geographic filters
+      - `config.size`: number - Results per page (default: 10)
+      - `config.from`: number - Offset for pagination (default: 0)
+      - `config.detailed`: boolean - Include full text (default: false)
+      - `config.enableSemanticSearch`: boolean - Use AI search (default: false)
+    </ParamField>
+  </Expandable>
+  
+  <Expandable title="Returns">
+    ```typescript
+    {
+      results: SearchResultLight[] | SearchResultDetailed[],
+      total: number
+    }
+    ```
+  </Expandable>
+</ParamField>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Transcription" icon="microphone" href="/features/transcription">
+    Learn how meetings are transcribed for search
+  </Card>
+  
+  <Card title="AI summaries" icon="sparkles" href="/features/ai-summaries">
+    Generate summaries from search results
+  </Card>
+  
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Get notified about new content matching your searches
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api-reference">
+    Explore the full search API
+  </Card>
+</CardGroup>

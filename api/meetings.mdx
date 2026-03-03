@@ -1,0 +1,293 @@
+---
+title: Meetings
+description: Access council meeting data and transcripts
+---
+
+## Get meetings for a city
+
+<CodeGroup>
+```bash Request
+GET /api/cities/{cityId}/meetings?limit=10
+```
+
+```json Response
+[
+  {
+    "id": "meeting-2024-03-15",
+    "name": "Τακτική Συνεδρίαση Δημοτικού Συμβουλίου",
+    "name_en": "Regular Council Meeting",
+    "dateTime": "2024-03-15T18:00:00.000Z",
+    "youtubeUrl": "https://www.youtube.com/watch?v=example",
+    "videoUrl": null,
+    "audioUrl": "https://storage.example.com/audio/meeting-2024-03-15.mp3",
+    "muxPlaybackId": "abc123def456",
+    "released": true,
+    "cityId": "athens",
+    "administrativeBody": {
+      "id": "council",
+      "name": "Δημοτικό Συμβούλιο",
+      "name_en": "Municipal Council",
+      "type": "council",
+      "cityId": "athens",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    },
+    "subjects": [
+      {
+        "id": "subject-1",
+        "name": "Αναβάθμιση πάρκων",
+        "description": "Πρόταση για αναβάθμιση των δημοτικών πάρκων",
+        "hot": false,
+        "agendaItemIndex": 1,
+        "topic": {
+          "id": "environment",
+          "name": "Περιβάλλον",
+          "name_en": "Environment",
+          "colorHex": "#4CAF50"
+        },
+        "speakerSegments": [
+          { "id": "segment-1" }
+        ],
+        "createdAt": "2024-03-10T00:00:00.000Z",
+        "updatedAt": "2024-03-15T18:00:00.000Z"
+      }
+    ],
+    "createdAt": "2024-03-10T00:00:00.000Z",
+    "updatedAt": "2024-03-15T20:00:00.000Z"
+  }
+]
+```
+</CodeGroup>
+
+Returns released meetings for a specific city, ordered by date (most recent first).
+
+### Path parameters
+
+<ParamField path="cityId" type="string" required>
+  Unique city identifier
+</ParamField>
+
+### Query parameters
+
+<ParamField query="limit" type="integer" default="unlimited">
+  Maximum number of meetings to return (1-100)
+</ParamField>
+
+### Response
+
+Returns an array of `Meeting` objects.
+
+<ResponseField name="id" type="string">
+  Unique meeting identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Meeting name in local language
+</ResponseField>
+
+<ResponseField name="name_en" type="string">
+  Meeting name in English
+</ResponseField>
+
+<ResponseField name="dateTime" type="string">
+  Meeting date and time (ISO 8601 format)
+</ResponseField>
+
+<ResponseField name="youtubeUrl" type="string">
+  YouTube video URL
+</ResponseField>
+
+<ResponseField name="videoUrl" type="string | null">
+  Direct video URL (if available)
+</ResponseField>
+
+<ResponseField name="audioUrl" type="string | null">
+  Audio file URL (if available)
+</ResponseField>
+
+<ResponseField name="muxPlaybackId" type="string | null">
+  Mux playback ID for video streaming
+</ResponseField>
+
+<ResponseField name="released" type="boolean">
+  Whether the meeting has been released publicly
+</ResponseField>
+
+<ResponseField name="cityId" type="string">
+  Associated city identifier
+</ResponseField>
+
+<ResponseField name="administrativeBody" type="object | null">
+  The administrative body that held the meeting
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Body identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Body name in local language
+    </ResponseField>
+    <ResponseField name="name_en" type="string">
+      Body name in English
+    </ResponseField>
+    <ResponseField name="type" type="string">
+      Body type: `council`, `committee`, or `community`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="subjects" type="array">
+  Array of subjects discussed in the meeting
+  <Expandable title="Subject properties">
+    <ResponseField name="id" type="string">
+      Subject identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Subject name
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Subject description
+    </ResponseField>
+    <ResponseField name="hot" type="boolean">
+      Whether the subject is marked as hot/trending
+    </ResponseField>
+    <ResponseField name="agendaItemIndex" type="integer | null">
+      Position in meeting agenda
+    </ResponseField>
+    <ResponseField name="topic" type="object | null">
+      Associated topic with id, name, name_en, and colorHex
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+<ResponseField name="400" type="ValidationError">
+  Invalid query parameters
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Failed to fetch meetings
+</ResponseField>
+
+---
+
+## Get transcript for a meeting
+
+<CodeGroup>
+```bash Request
+GET /api/cities/{cityId}/meetings/{meetingId}
+```
+
+```json Response
+[
+  {
+    "id": "segment-1",
+    "startTimestamp": 0.0,
+    "endTimestamp": 45.5,
+    "meeting": {
+      "id": "meeting-2024-03-15",
+      "name": "Τακτική Συνεδρίαση Δημοτικού Συμβουλίου",
+      "dateTime": "2024-03-15T18:00:00.000Z"
+    },
+    "person": {
+      "id": "person-1",
+      "name": "Γιώργος Παπαδάκης",
+      "name_en": "George Papadakis",
+      "name_short": "Γ. Παπαδάκης",
+      "name_short_en": "G. Papadakis",
+      "image": "https://example.com/images/person-1.jpg",
+      "role": "Δήμαρχος",
+      "role_en": "Mayor",
+      "cityId": "athens",
+      "partyId": "party-1"
+    },
+    "text": "Καλησπέρα σας. Θα ήθελα να παρουσιάσω την πρόταση για την αναβάθμιση των δημοτικών πάρκων...",
+    "summary": {
+      "text": "Ο δήμαρχος παρουσιάζει την πρόταση για αναβάθμιση πάρκων"
+    }
+  }
+]
+```
+</CodeGroup>
+
+Returns the full transcript for a specific meeting, including speaker segments with timestamps and speaker information.
+
+### Path parameters
+
+<ParamField path="cityId" type="string" required>
+  Unique city identifier
+</ParamField>
+
+<ParamField path="meetingId" type="string" required>
+  Unique meeting identifier
+</ParamField>
+
+### Response
+
+Returns an array of `SpeakerSegment` objects ordered by timestamp.
+
+<ResponseField name="id" type="string">
+  Unique segment identifier
+</ResponseField>
+
+<ResponseField name="startTimestamp" type="number">
+  Start time in seconds from meeting beginning
+</ResponseField>
+
+<ResponseField name="endTimestamp" type="number">
+  End time in seconds from meeting beginning
+</ResponseField>
+
+<ResponseField name="meeting" type="object">
+  Basic meeting information
+</ResponseField>
+
+<ResponseField name="person" type="object | null">
+  Speaker information (null if speaker is unidentified)
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      Person identifier
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Full name in local language
+    </ResponseField>
+    <ResponseField name="name_en" type="string">
+      Full name in English
+    </ResponseField>
+    <ResponseField name="image" type="string | null">
+      Profile image URL
+    </ResponseField>
+    <ResponseField name="role" type="string | null">
+      Current role in local language
+    </ResponseField>
+    <ResponseField name="role_en" type="string | null">
+      Current role in English
+    </ResponseField>
+    <ResponseField name="partyId" type="string | null">
+      Associated party identifier
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="text" type="string">
+  Transcribed speech text
+</ResponseField>
+
+<ResponseField name="summary" type="object | null">
+  AI-generated summary of the segment
+  <Expandable title="properties">
+    <ResponseField name="text" type="string">
+      Summary text
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+<ResponseField name="404" type="Error">
+  Transcript not found
+</ResponseField>
+
+<ResponseField name="500" type="Error">
+  Failed to fetch transcript
+</ResponseField>
