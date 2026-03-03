@@ -89,6 +89,8 @@
             "pages": [
               "api/cities",
               "api/meetings",
+              "api/people",
+              "api/parties",
               "api/search",
               "api/notifications",
               "api/chat"

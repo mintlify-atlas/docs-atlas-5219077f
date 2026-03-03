@@ -1,0 +1,189 @@
+---
+title: People API
+description: Access council members and their information
+---
+
+The People API provides access to council members, their roles, party affiliations, and terms of service.
+
+## List people
+
+`GET /api/cities/{cityId}/people`
+
+Returns all council members for a specified city.
+
+### Parameters
+
+<ParamField path="cityId" type="string" required>
+  The unique identifier of the city
+</ParamField>
+
+### Response
+
+Returns an array of Person objects.
+
+<ResponseField name="id" type="string">
+  Unique identifier for the person
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Full name in Greek
+</ResponseField>
+
+<ResponseField name="name_en" type="string">
+  Full name in English
+</ResponseField>
+
+<ResponseField name="name_short" type="string">
+  Short name in Greek (e.g., first name and last initial)
+</ResponseField>
+
+<ResponseField name="name_short_en" type="string">
+  Short name in English
+</ResponseField>
+
+<ResponseField name="image" type="string | null">
+  URL to profile image
+</ResponseField>
+
+<ResponseField name="activeFrom" type="string | null">
+  ISO 8601 timestamp when the person's term started
+</ResponseField>
+
+<ResponseField name="activeTo" type="string | null">
+  ISO 8601 timestamp when the person's term ended (null if currently active)
+</ResponseField>
+
+<ResponseField name="cityId" type="string">
+  ID of the associated city
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO 8601 timestamp of record creation
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO 8601 timestamp of last update
+</ResponseField>
+
+### Example request
+
+<CodeGroup>
+```bash cURL
+curl https://api.opencouncil.gr/api/cities/athens/people
+```
+
+```javascript JavaScript
+const response = await fetch(
+  'https://api.opencouncil.gr/api/cities/athens/people'
+);
+const people = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.opencouncil.gr/api/cities/athens/people'
+)
+people = response.json()
+```
+</CodeGroup>
+
+### Example response
+
+```json
+[
+  {
+    "id": "clxxx123",
+    "name": "Κώστας Μπακογιάννης",
+    "name_en": "Kostas Bakoyannis",
+    "name_short": "Κ. Μπακογιάννης",
+    "name_short_en": "K. Bakoyannis",
+    "image": "https://example.com/photo.jpg",
+    "activeFrom": "2019-09-01T00:00:00.000Z",
+    "activeTo": null,
+    "cityId": "athens",
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
+]
+```
+
+## Get person
+
+`GET /api/cities/{cityId}/people/{personId}`
+
+Returns details for a specific council member.
+
+### Parameters
+
+<ParamField path="cityId" type="string" required>
+  The unique identifier of the city
+</ParamField>
+
+<ParamField path="personId" type="string" required>
+  The unique identifier of the person
+</ParamField>
+
+### Response
+
+Returns a Person object with the same fields as the list endpoint.
+
+### Example request
+
+```bash
+curl https://api.opencouncil.gr/api/cities/athens/people/clxxx123
+```
+
+### Example response
+
+```json
+{
+  "id": "clxxx123",
+  "name": "Κώστας Μπακογιάννης",
+  "name_en": "Kostas Bakoyannis",
+  "name_short": "Κ. Μπακογιάννης",
+  "name_short_en": "K. Bakoyannis",
+  "image": "https://example.com/photo.jpg",
+  "activeFrom": "2019-09-01T00:00:00.000Z",
+  "activeTo": null,
+  "cityId": "athens",
+  "createdAt": "2024-01-15T10:30:00.000Z",
+  "updatedAt": "2024-01-15T10:30:00.000Z"
+}
+```
+
+## Error responses
+
+### Person not found (404)
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Person not found"
+  }
+}
+```
+
+### Server error (500)
+
+```json
+{
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "Failed to fetch person"
+  }
+}
+```
+
+## Related endpoints
+
+<CardGroup cols={2}>
+  <Card title="Parties" icon="flag" href="/api/parties">
+    Get political party information
+  </Card>
+  <Card title="Meetings" icon="users" href="/api/meetings">
+    Find meetings where people spoke
+  </Card>
+</CardGroup>
